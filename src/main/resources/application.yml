@@ -1,0 +1,63 @@
+spring:
+  application:
+    name: smartstock
+
+  datasource:
+    url: ${SUPABASE_DB_URL}
+    username: ${SUPABASE_USERNAME}
+    password: ${SUPABASE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+
+  batch:
+    job:
+      enabled: false
+    jdbc:
+      initialize-schema: always
+
+  devtools:
+    restart:
+      enabled: true
+
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      fail-on-empty-beans: false
+
+  data:
+    redis:
+      url: ${REDISS_URL}
+      ssl:
+        enabled: true
+
+server:
+  port: 8080
+
+logging:
+    level:
+      org.hibernate.orm.connections.pooling: WARN
+
+
+groq:
+  api:
+    key: ${GROQ_API_KEY}
+    url: https://api.groq.com/openai/v1/chat/completions
+  model: openai/gpt-oss-20b
+
+twilio:
+  account-sid: ${TWILIO_ACCOUNT_SID}
+  auth-token: ${TWILIO_AUTH_TOKEN}
+  whatsapp-from: whatsapp:+14155238886
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: 86400000

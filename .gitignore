@@ -40,3 +40,5 @@ build/
 
 # Uploaded files
 uploads/
+
+.run/SmartstockApplication.run.xml

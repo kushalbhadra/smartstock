@@ -32,6 +32,23 @@ public class StockMovement {
     @Column(nullable = false)
     private Integer quantity;
 
+    @Column(name = "previous_quantity")
+    private Integer previousQuantity;
+
+    @Column(name = "new_quantity")
+    private Integer newQuantity;
+
+    @Column(name = "reference_number", length = 120)
+    private String referenceNumber;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_warehouse_id")
+    private Warehouse sourceWarehouse;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "destination_warehouse_id")
+    private Warehouse destinationWarehouse;
+
     @Column(length = 500)
     private String reason;
 
@@ -45,6 +62,6 @@ public class StockMovement {
     private LocalDateTime createdAt;
 
     public enum MovementType {
-        INBOUND, OUTBOUND, ADJUSTMENT
+        INBOUND, OUTBOUND, ADJUSTMENT, TRANSFER_IN, TRANSFER_OUT
     }
 }

@@ -115,9 +115,11 @@ public class ExcelService {
     // ── EXPORT MOVEMENTS ──────────────────────────────────────────────
 
     public byte[] exportMovements() throws IOException {
-        List<StockMovement> movements =
-                movementRepository.findAll();
+        return exportMovements(movementRepository.findAll());
+    }
 
+    public byte[] exportMovements(List<StockMovement> movements)
+            throws IOException {
         Workbook workbook = new XSSFWorkbook();
         Sheet sheet = workbook.createSheet("Stock Movements");
 

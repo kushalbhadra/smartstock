@@ -1,0 +1,18 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+  batch:
+    jdbc:
+      initialize-schema: never
+  devtools:
+    restart:
+      enabled: false
+  data:
+    redis:
+      ssl:
+        enabled: false
+
+server:
+  forward-headers-strategy: framework

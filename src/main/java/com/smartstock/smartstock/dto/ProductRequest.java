@@ -27,4 +27,23 @@ public class ProductRequest {
     @DecimalMin(value = "0.0", inclusive = false,
             message = "Price must be greater than 0")
     private BigDecimal price;
+
+    @NotNull
+    @DecimalMin(value = "0.0", inclusive = false,
+            message = "Storage capacity factor must be greater than 0")
+    @Digits(integer = 8, fraction = 4,
+            message = "Storage capacity factor supports up to 4 decimal places")
+    private BigDecimal storageCapacityFactor = BigDecimal.ONE;
+
+    @Positive
+    private Long initialWarehouseId;
+
+    @Min(0)
+    private Integer initialQuantity;
+
+    @Min(0)
+    private Integer minQuantity;
+
+    @Min(1)
+    private Integer maxQuantity;
 }

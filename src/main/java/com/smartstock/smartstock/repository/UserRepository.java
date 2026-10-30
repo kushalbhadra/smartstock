@@ -14,12 +14,18 @@ public interface UserRepository extends JpaRepository<User, Long> {
     // Spring generates: SELECT * FROM users WHERE email = ?
     Optional<User> findByEmail(String email);
 
+    Optional<User> findByEmailIgnoreCase(String email);
+
     // Spring generates: SELECT * FROM users WHERE role = ?
     java.util.List<User> findByRole(User.Role role);
+
+    long countByRole(User.Role role);
 
     // Spring generates: SELECT * FROM users WHERE warehouse_id = ?
     java.util.List<User> findByWarehouseId(Long warehouseId);
 
     // Check if email already exists (for registration)
     boolean existsByEmail(String email);
+
+    boolean existsByEmailIgnoreCase(String email);
 }

@@ -40,7 +40,8 @@ public class AuthController {
         );
 
         // Step 2: Load full user from database
-        User user = userRepository.findByEmail(request.getEmail())
+        User user = userRepository.findByEmailIgnoreCase(
+                        request.getEmail().trim())
                 .orElseThrow();
 
         // Step 3: Generate JWT token

@@ -1,0 +1,31 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:smartstock-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+  batch:
+    jdbc:
+      initialize-schema: never
+  data:
+    redis:
+      url: redis://localhost:6379
+      ssl:
+        enabled: false
+
+app:
+  bootstrap-admin:
+    name: Test Administrator
+    email: test-admin@example.invalid
+    password: test-only-password-123
+
+groq:
+  api:
+    key: test-only-key
+
+jwt:
+  secret: test-only-jwt-secret-with-at-least-256-bits-of-entropy-for-context-loading

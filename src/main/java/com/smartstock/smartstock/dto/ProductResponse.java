@@ -17,5 +17,6 @@ public class ProductResponse {
     private String category;
     private String unit;
     private BigDecimal price;
+    private BigDecimal storageCapacityFactor;
     private LocalDateTime createdAt;
 }

@@ -6,6 +6,7 @@ import com.smartstock.smartstock.repository.DemandForecastRepository;
 import com.smartstock.smartstock.repository.ProductRepository;
 import com.smartstock.smartstock.repository.StockRepository;
 import com.smartstock.smartstock.service.GroqAiService;
+import com.smartstock.smartstock.service.NotificationService;
 
 import org.springframework.batch.core.step.Step;
 import org.springframework.batch.core.job.Job;
@@ -40,6 +41,9 @@ public class DemandForecastJobConfig {
 
     @Autowired
     private GroqAiService groqAiService;
+
+    @Autowired
+    private NotificationService notificationService;
 
 
     // =========================================================
@@ -152,9 +156,8 @@ public class DemandForecastJobConfig {
 
         return chunk -> {
 
-            forecastRepository.saveAll(
-                    chunk.getItems()
-            );
+            forecastRepository.saveAll(chunk.getItems())
+                    .forEach(notificationService::onForecastSaved);
 
             System.out.println(
                     "Saved "

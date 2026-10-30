@@ -48,7 +48,8 @@ public class Stock {
     // Interview question: "How do you handle concurrent stock updates?"
     // Answer: "I use @Version for optimistic locking"
     @Version
-    private Integer version;
+    @Builder.Default
+    private Integer version = 0;
 
     @UpdateTimestamp
     @Column(name = "updated_at")

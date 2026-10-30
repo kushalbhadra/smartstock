@@ -108,6 +108,12 @@
 			<scope>runtime</scope>
 		</dependency>
 
+		<!-- Java 8 Date/Time support for Jackson 3 -->
+		<dependency>
+			<groupId>com.fasterxml.jackson.datatype</groupId>
+			<artifactId>jackson-datatype-jsr310</artifactId>
+			<version>2.21.5</version>
+		</dependency>
 
 		<!-- ==================== LOMBOK ==================== -->
 
@@ -128,20 +134,13 @@
 		</dependency>
 
 
-		<!-- ==================== EXCEL+WHATSAPP+REDIS ==================== -->
+		<!-- ==================== EXCEL + REDIS ==================== -->
 
 		<!-- Apache POI — Excel read/write -->
 		<dependency>
 			<groupId>org.apache.poi</groupId>
 			<artifactId>poi-ooxml</artifactId>
 			<version>5.2.5</version>
-		</dependency>
-
-		<!-- Twilio — WhatsApp alerts -->
-		<dependency>
-			<groupId>com.twilio.sdk</groupId>
-			<artifactId>twilio</artifactId>
-			<version>10.5.1</version>
 		</dependency>
 
 		<!-- Redis — caching -->
@@ -180,6 +179,12 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
 			<scope>test</scope>
 		</dependency>
 

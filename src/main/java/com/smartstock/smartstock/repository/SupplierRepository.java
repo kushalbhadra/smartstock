@@ -11,6 +11,8 @@ public interface SupplierRepository extends JpaRepository<Supplier, Long> {
 
     List<Supplier> findByNameContainingIgnoreCase(String name);
 
+    boolean existsBySupplierCodeIgnoreCase(String supplierCode);
+
     // Find suppliers with rating above threshold
     List<Supplier> findByRatingGreaterThanEqual(Double rating);
 

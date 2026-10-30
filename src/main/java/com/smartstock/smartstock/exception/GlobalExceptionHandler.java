@@ -3,9 +3,13 @@ package com.smartstock.smartstock.exception;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -54,6 +58,18 @@ public class GlobalExceptionHandler {
                         ex.getMessage(), request.getRequestURI()));
     }
 
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<Map<String, Object>> handleOptimisticLockingFailure(
+            ObjectOptimisticLockingFailureException ex,
+            HttpServletRequest request) {
+
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(buildError(409, "Conflict",
+                        "Stock was updated by another user. "
+                                + "Refresh stock levels and try again.",
+                        request.getRequestURI()));
+    }
+
     // 400 — validation failed (@Valid annotation)
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> handleValidation(
@@ -62,11 +78,14 @@ public class GlobalExceptionHandler {
 
         // Collect all field errors
         Map<String, String> fieldErrors = new HashMap<>();
-        ex.getBindingResult().getAllErrors().forEach(error -> {
-            String field = ((FieldError) error).getField();
-            String message = error.getDefaultMessage();
-            fieldErrors.put(field, message);
-        });
+        ex.getBindingResult().getFieldErrors().forEach(error ->
+                fieldErrors.put(
+                        error.getField(),
+                        error.getDefaultMessage() == null
+                                ? "Invalid value"
+                                : error.getDefaultMessage()
+                )
+        );
 
         Map<String, Object> body = buildError(400,
                 "Validation Failed",
@@ -77,6 +96,22 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
 
+    @ExceptionHandler({
+            HandlerMethodValidationException.class,
+            HttpMessageNotReadableException.class
+    })
+    public ResponseEntity<Map<String, Object>> handleInvalidRequest(
+            Exception ex,
+            HttpServletRequest request) {
+        String message = ex instanceof HttpMessageNotReadableException
+                ? "Request body could not be parsed"
+                : "Request parameters are invalid";
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(buildError(400, "Bad Request",
+                        message,
+                        request.getRequestURI()));
+    }
+
     // 403 — access denied (wrong role)
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<Map<String, Object>> handleAccessDenied(
@@ -85,6 +120,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(buildError(403, "Forbidden",
                         "You do not have permission to perform this action",
+                        request.getRequestURI()));
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<Map<String, Object>> handleAuthenticationFailure(
+            AuthenticationException ex,
+            HttpServletRequest request) {
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(buildError(401, "Unauthorized",
+                        "Email or password is incorrect",
                         request.getRequestURI()));
     }
 

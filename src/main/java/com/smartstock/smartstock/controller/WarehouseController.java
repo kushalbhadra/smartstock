@@ -1,12 +1,16 @@
+
 package com.smartstock.smartstock.controller;
 
 import com.smartstock.smartstock.dto.ApiResponse;
+import com.smartstock.smartstock.dto.WarehouseResponse;
 import com.smartstock.smartstock.entity.Warehouse;
 import com.smartstock.smartstock.service.WarehouseService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -19,18 +23,24 @@ public class WarehouseController {
     private WarehouseService warehouseService;
 
     @GetMapping
-    public ResponseEntity<List<Warehouse>> getAll() {
-        return ResponseEntity.ok(warehouseService.getAllWarehouses());
+    public ResponseEntity<List<WarehouseResponse>> getAll(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(
+                warehouseService.getAllWarehouses(userDetails.getUsername()));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Warehouse> getById(@PathVariable Long id) {
-        return ResponseEntity.ok(warehouseService.getWarehouseById(id));
+    public ResponseEntity<WarehouseResponse> getById(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(
+                warehouseService.getWarehouseById(
+                        id, userDetails.getUsername()));
     }
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Warehouse> create(
+    public ResponseEntity<WarehouseResponse> create(
             @RequestBody Warehouse warehouse) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(warehouseService.createWarehouse(warehouse));
@@ -38,7 +48,7 @@ public class WarehouseController {
 
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Warehouse> update(
+    public ResponseEntity<WarehouseResponse> update(
             @PathVariable Long id,
             @RequestBody Warehouse warehouse) {
         return ResponseEntity.ok(

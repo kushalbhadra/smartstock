@@ -10,6 +10,7 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class UserDetailsServiceImpl implements UserDetailsService {
@@ -24,7 +25,8 @@ public class UserDetailsServiceImpl implements UserDetailsService {
             throws UsernameNotFoundException {
 
         // Find user by email in database
-        User user = userRepository.findByEmail(email)
+        User user = userRepository.findByEmailIgnoreCase(
+                        email.trim().toLowerCase(Locale.ROOT))
                 .orElseThrow(() ->
                         new UsernameNotFoundException(
                                 "User not found with email: " + email

@@ -1,0 +1,28 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+  batch:
+    jdbc:
+      initialize-schema: never
+  devtools:
+    restart:
+      enabled: false
+  data:
+    redis:
+      ssl:
+        enabled: true
+
+server:
+  error:
+    include-message: never
+    include-stacktrace: never
+  forward-headers-strategy: framework
+
+app:
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS}

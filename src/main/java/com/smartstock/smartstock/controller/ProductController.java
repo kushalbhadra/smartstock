@@ -10,6 +10,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -48,6 +50,7 @@ public class ProductController {
 
     // GET /api/products/export
     @GetMapping("/export")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<byte[]> exportProducts()
             throws Exception {
         byte[] data = excelService.exportProducts();
@@ -62,6 +65,7 @@ public class ProductController {
 
     // GET /api/products/template
     @GetMapping("/template")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<byte[]> downloadTemplate()
             throws Exception {
         byte[] data = excelService.generateProductTemplate();
@@ -78,8 +82,10 @@ public class ProductController {
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ProductResponse> createProduct(
-            @Valid @RequestBody ProductRequest request) {
-        ProductResponse created = productService.createProduct(request);
+            @Valid @RequestBody ProductRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        ProductResponse created = productService.createProduct(
+                request, userDetails.getUsername());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 

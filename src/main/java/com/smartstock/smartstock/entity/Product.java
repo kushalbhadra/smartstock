@@ -39,6 +39,12 @@ public class Product {
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal price;
 
+    @Builder.Default
+    @Column(name = "storage_capacity_factor", nullable = false,
+            precision = 12, scale = 4,
+            columnDefinition = "numeric(12,4) not null default 1")
+    private BigDecimal storageCapacityFactor = BigDecimal.ONE;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

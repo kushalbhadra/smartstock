@@ -1,11 +1,12 @@
 package com.smartstock.smartstock.service;
 
 import com.smartstock.smartstock.entity.Supplier;
+import com.smartstock.smartstock.dto.SupplierRequest;
 import com.smartstock.smartstock.exception.ResourceNotFoundException;
 import com.smartstock.smartstock.repository.SupplierRepository;
+import com.smartstock.smartstock.repository.PurchaseOrderRepository;
+import com.smartstock.smartstock.exception.BusinessException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,9 +19,9 @@ public class SupplierService {
     @Autowired
     private SupplierRepository supplierRepository;
 
-    // Cache hit → returns from Redis instantly, no DB call
-    // Cache miss → calls DB, stores in Redis, returns result
-    @Cacheable(value = "suppliers", key = "'all'")
+    @Autowired
+    private PurchaseOrderRepository purchaseOrderRepository;
+
     @Transactional(readOnly = true)
     public List<Supplier> getAllSuppliers() {
         return supplierRepository.findAll();
@@ -33,30 +34,77 @@ public class SupplierService {
                         new ResourceNotFoundException("Supplier", "id", id));
     }
 
-    // After creating → old cached list is stale → evict it
-    // Next getAllSuppliers call will fetch fresh from DB
-    @CacheEvict(value = "suppliers", allEntries = true)
-    public Supplier createSupplier(Supplier supplier) {
+    public Supplier createSupplier(SupplierRequest request) {
+        String supplierCode = normalizeCode(request.getSupplierCode());
+        if (supplierCode != null
+                && supplierRepository.existsBySupplierCodeIgnoreCase(
+                        supplierCode)) {
+            throw new BusinessException(
+                    "A supplier with this supplier code already exists.");
+        }
+        Supplier supplier = Supplier.builder()
+                .supplierCode(supplierCode)
+                .name(request.getName().trim())
+                .contactEmail(request.getContactEmail())
+                .phone(request.getPhone())
+                .contactPerson(request.getContactPerson())
+                .address(request.getAddress())
+                .rating(request.getRating())
+                .active(request.getActive() == null
+                        ? true : request.getActive())
+                .build();
         return supplierRepository.save(supplier);
     }
 
-    // After updating → evict cache so changes are visible
-    @CacheEvict(value = "suppliers", allEntries = true)
-    public Supplier updateSupplier(Long id, Supplier updated) {
+    public Supplier updateSupplier(Long id, SupplierRequest updated) {
         Supplier existing = getSupplierById(id);
+        String supplierCode = normalizeCode(updated.getSupplierCode());
+        if (supplierCode != null
+                && !supplierCode.equalsIgnoreCase(
+                        existing.getSupplierCode() == null
+                                ? "" : existing.getSupplierCode())
+                && supplierRepository.existsBySupplierCodeIgnoreCase(
+                        supplierCode)) {
+            throw new BusinessException(
+                    "A supplier with this supplier code already exists.");
+        }
+        if (supplierCode != null) {
+            existing.setSupplierCode(supplierCode);
+        }
         existing.setName(updated.getName());
-        existing.setContactEmail(updated.getContactEmail());
-        existing.setPhone(updated.getPhone());
-        existing.setRating(updated.getRating());
+        if (updated.getContactEmail() != null) {
+            existing.setContactEmail(updated.getContactEmail());
+        }
+        if (updated.getPhone() != null) {
+            existing.setPhone(updated.getPhone());
+        }
+        if (updated.getContactPerson() != null) {
+            existing.setContactPerson(updated.getContactPerson());
+        }
+        if (updated.getAddress() != null) {
+            existing.setAddress(updated.getAddress());
+        }
+        if (updated.getRating() != null) {
+            existing.setRating(updated.getRating());
+        }
+        existing.setActive(updated.getActive() == null
+                ? existing.getActive() : updated.getActive());
         return supplierRepository.save(existing);
     }
 
-    // After deleting → evict cache
-    @CacheEvict(value = "suppliers", allEntries = true)
     public void deleteSupplier(Long id) {
-        if (!supplierRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Supplier", "id", id);
+        getSupplierById(id);
+        if (purchaseOrderRepository.existsBySupplierId(id)) {
+            throw new BusinessException(
+                    "A supplier referenced by purchase orders cannot be deleted.");
         }
         supplierRepository.deleteById(id);
+    }
+
+    private String normalizeCode(String code) {
+        if (code == null || code.isBlank()) {
+            return null;
+        }
+        return code.trim().toUpperCase();
     }
 }

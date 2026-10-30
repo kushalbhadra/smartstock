@@ -41,21 +41,9 @@ public class User {
     @Column(nullable = false, length = 20)
     private Role role;
 
-    // Phone for WhatsApp alerts — optional
+    // Optional contact number retained as profile information.
     @Column(length = 20)
     private String phone;
-
-    // WhatsApp alert preference
-    @Column(name = "whatsapp_alerts_enabled")
-    @Builder.Default
-    private Boolean whatsappAlertsEnabled = true;
-
-    // Quiet hours — no alerts between these times
-    @Column(name = "alert_quiet_start")
-    private Integer alertQuietStart;  // e.g. 22 = 10PM
-
-    @Column(name = "alert_quiet_end")
-    private Integer alertQuietEnd;    // e.g. 7 = 7AM
 
     // Which warehouse this manager manages
     // null for ADMIN and VIEWER

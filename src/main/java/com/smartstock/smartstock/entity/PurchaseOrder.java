@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
+import jakarta.persistence.Column;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -39,6 +40,18 @@ public class PurchaseOrder {
     @Column(nullable = false)
     private Integer quantity;
 
+    @Builder.Default
+    @Column(name = "purchase_unit_price", nullable = false,
+            precision = 12, scale = 2,
+            columnDefinition = "numeric(12,2) not null default 0")
+    private java.math.BigDecimal purchaseUnitPrice =
+            java.math.BigDecimal.ZERO;
+
+    @Builder.Default
+    @Column(name = "received_quantity", nullable = false,
+            columnDefinition = "integer not null default 0")
+    private Integer receivedQuantity = 0;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Status status;
@@ -60,6 +73,7 @@ public class PurchaseOrder {
     private LocalDateTime updatedAt;
 
     public enum Status {
-        PENDING, APPROVED, DELIVERED, CANCELLED
+        PENDING, APPROVED, PARTIALLY_RECEIVED, RECEIVED,
+        DELIVERED, CANCELLED
     }
 }

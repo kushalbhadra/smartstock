@@ -3,6 +3,7 @@ package com.smartstock.smartstock.config;
 import com.smartstock.smartstock.security.JwtAuthFilter;
 import com.smartstock.smartstock.security.UserDetailsServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -23,6 +24,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
@@ -35,6 +37,9 @@ public class SecurityConfig {
 
     @Autowired
     private UserDetailsServiceImpl userDetailsService;
+
+    @Value("${app.cors.allowed-origins}")
+    private String allowedOrigins;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -68,20 +73,50 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
 
                         // Public endpoints — no token needed
-                        .requestMatchers("/auth/**").permitAll()
+                        .requestMatchers("/auth/login").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
 
+                        // Authenticated users can manage their own profile
+                        .requestMatchers("/api/users/me").authenticated()
+
                         // Admin only endpoints
-                        .requestMatchers("/api/users/**").hasRole("ADMIN")
+                        .requestMatchers("/api/users/**",
+                                "/api/settings/**",
+                                "/api/audit/**",
+                                "/api/alerts/**",
+                                "/api/products/export",
+                                "/api/products/template")
+                        .hasRole("ADMIN")
+
+                        // Users can read and update only their own notifications
+                        .requestMatchers(HttpMethod.GET, "/api/notifications/**")
+                        .hasAnyRole("ADMIN", "WAREHOUSE_MGR", "VIEWER")
+                        .requestMatchers(HttpMethod.PATCH,
+                                "/api/notifications/**")
+                        .hasAnyRole("ADMIN", "WAREHOUSE_MGR", "VIEWER")
+
+                        // All authenticated roles may read warehouse lists;
+                        // the service limits managers to their assigned warehouse.
+                        .requestMatchers(HttpMethod.GET, "/api/warehouses/**")
+                        .hasAnyRole("ADMIN", "WAREHOUSE_MGR", "VIEWER")
                         .requestMatchers("/api/warehouses/**").hasRole("ADMIN")
 
-                        // Admin or Warehouse Manager
+                        // Inventory writes are limited to admins and managers.
                         .requestMatchers(HttpMethod.POST, "/api/stocks/movements")
                         .hasAnyRole("ADMIN", "WAREHOUSE_MGR")
                         .requestMatchers(HttpMethod.POST, "/api/purchase-orders")
                         .hasAnyRole("ADMIN", "WAREHOUSE_MGR")
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/support/tickets")
+                        .hasAnyRole("ADMIN", "WAREHOUSE_MGR", "VIEWER")
 
-                        // All other requests need authentication
+                        // Every remaining read API is authenticated and read-only
+                        // for managers/viewers; remaining mutations are admin-only.
+                        .requestMatchers(HttpMethod.GET, "/api/**")
+                        .hasAnyRole("ADMIN", "WAREHOUSE_MGR", "VIEWER")
+                        .requestMatchers("/api/**").hasRole("ADMIN")
+
+                        // All other application endpoints require authentication.
                         .anyRequest().authenticated()
                 )
 
@@ -97,12 +132,10 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
 
-        // Allow React dev server and production Vercel URL
-        config.setAllowedOrigins(List.of(
-                "http://localhost:5173",   // Vite dev server
-                "http://localhost:3000",   // React dev server
-                "https://smartstock.vercel.app"  // production
-        ));
+        config.setAllowedOrigins(Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .toList());
 
         // Allow all standard HTTP methods
         config.setAllowedMethods(List.of(

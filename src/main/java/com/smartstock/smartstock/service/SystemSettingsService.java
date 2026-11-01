@@ -4,6 +4,7 @@ import com.smartstock.smartstock.dto.SystemSettingsRequest;
 import com.smartstock.smartstock.dto.SystemSettingsResponse;
 import com.smartstock.smartstock.entity.SystemSettings;
 import com.smartstock.smartstock.repository.SystemSettingsRepository;
+import com.smartstock.smartstock.validation.ContactDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,8 +27,10 @@ public class SystemSettingsService {
     public SystemSettingsResponse update(SystemSettingsRequest request) {
         SystemSettings settings = getOrCreate();
         settings.setCompanyName(request.getCompanyName().trim());
-        settings.setContactEmail(blankToNull(request.getContactEmail()));
-        settings.setContactPhone(blankToNull(request.getContactPhone()));
+        settings.setContactEmail(ContactDetails.normalizeEmail(
+                request.getContactEmail()));
+        settings.setContactPhone(ContactDetails.normalizePhone(
+                request.getContactPhone()));
         settings.setDefaultLowStockThreshold(
                 request.getDefaultLowStockThreshold());
         return toResponse(settingsRepository.save(settings));
@@ -43,10 +46,6 @@ public class SystemSettingsService {
                         SystemSettings.builder()
                                 .id(SETTINGS_ID)
                                 .build()));
-    }
-
-    private String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private SystemSettingsResponse toResponse(SystemSettings settings) {

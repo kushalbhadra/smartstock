@@ -6,6 +6,7 @@ import com.smartstock.smartstock.exception.ResourceNotFoundException;
 import com.smartstock.smartstock.repository.SupplierRepository;
 import com.smartstock.smartstock.repository.PurchaseOrderRepository;
 import com.smartstock.smartstock.exception.BusinessException;
+import com.smartstock.smartstock.validation.ContactDetails;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,8 +46,9 @@ public class SupplierService {
         Supplier supplier = Supplier.builder()
                 .supplierCode(supplierCode)
                 .name(request.getName().trim())
-                .contactEmail(request.getContactEmail())
-                .phone(request.getPhone())
+                .contactEmail(ContactDetails.normalizeEmail(
+                        request.getContactEmail()))
+                .phone(ContactDetails.normalizePhone(request.getPhone()))
                 .contactPerson(request.getContactPerson())
                 .address(request.getAddress())
                 .rating(request.getRating())
@@ -73,10 +75,12 @@ public class SupplierService {
         }
         existing.setName(updated.getName());
         if (updated.getContactEmail() != null) {
-            existing.setContactEmail(updated.getContactEmail());
+            existing.setContactEmail(ContactDetails.normalizeEmail(
+                    updated.getContactEmail()));
         }
         if (updated.getPhone() != null) {
-            existing.setPhone(updated.getPhone());
+            existing.setPhone(ContactDetails.normalizePhone(
+                    updated.getPhone()));
         }
         if (updated.getContactPerson() != null) {
             existing.setContactPerson(updated.getContactPerson());

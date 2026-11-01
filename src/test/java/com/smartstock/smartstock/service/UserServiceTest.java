@@ -88,6 +88,30 @@ class UserServiceTest {
     }
 
     @Test
+    void updateNormalizesIndianPhoneNumber() {
+        User user = User.builder()
+                .id(5L)
+                .name("Sneha")
+                .email("sneha@smartstock.com")
+                .password("encoded-password")
+                .role(User.Role.VIEWER)
+                .build();
+        UserRequest request = new UserRequest();
+        request.setName("Sneha");
+        request.setEmail(user.getEmail());
+        request.setRole(User.Role.VIEWER);
+        request.setPhone("+919876543210");
+
+        when(userRepository.findById(5L)).thenReturn(Optional.of(user));
+        when(userRepository.save(user)).thenReturn(user);
+
+        userService.update(5L, request);
+
+        assertEquals("9876543210", user.getPhone());
+        verify(userRepository).save(user);
+    }
+
+    @Test
     void updateRejectsShortPassword() {
         User user = User.builder()
                 .id(5L)

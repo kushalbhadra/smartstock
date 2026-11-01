@@ -14,6 +14,7 @@ import com.smartstock.smartstock.repository.NotificationRepository;
 import com.smartstock.smartstock.repository.PurchaseOrderRepository;
 import com.smartstock.smartstock.repository.StockMovementRepository;
 import com.smartstock.smartstock.repository.SupportTicketRepository;
+import com.smartstock.smartstock.validation.ContactDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,8 +62,10 @@ public class UserService {
     }
 
     public UserResponse create(UserRequest request) {
+        String email = ContactDetails.normalizeRequiredEmail(
+                request.getEmail());
         if (userRepository.existsByEmailIgnoreCase(
-                request.getEmail().trim())) {
+                email)) {
             throw new BusinessException("Email is already in use");
         }
         if (request.getPassword() == null
@@ -76,10 +79,10 @@ public class UserService {
 
         User user = User.builder()
                 .name(request.getName().trim())
-                .email(request.getEmail().trim().toLowerCase())
+                .email(email)
                 .password(passwordEncoder.encode(request.getPassword()))
                 .role(request.getRole())
-                .phone(request.getPhone())
+                .phone(ContactDetails.normalizePhone(request.getPhone()))
                 .warehouse(resolveWarehouse(
                         request.getRole(), request.getWarehouseId()))
                 .build();
@@ -88,9 +91,11 @@ public class UserService {
 
     public UserResponse update(Long id, UserRequest request) {
         User user = findById(id);
-        if (!user.getEmail().equalsIgnoreCase(request.getEmail().trim())
+        String email = ContactDetails.normalizeRequiredEmail(
+                request.getEmail());
+        if (!user.getEmail().equalsIgnoreCase(email)
                 && userRepository.existsByEmailIgnoreCase(
-                request.getEmail().trim())) {
+                email)) {
             throw new BusinessException("Email is already in use");
         }
         if (request.getRole() == null) {
@@ -106,7 +111,7 @@ public class UserService {
 
         user.setName(request.getName().trim());
         user.setRole(request.getRole());
-        user.setPhone(request.getPhone());
+        user.setPhone(ContactDetails.normalizePhone(request.getPhone()));
         if (request.getPassword() != null
                 && !request.getPassword().isBlank()) {
             user.setPassword(passwordEncoder.encode(request.getPassword()));
@@ -147,7 +152,7 @@ public class UserService {
             String email, UserProfileRequest request) {
         User user = findByEmail(email);
         user.setName(request.getName().trim());
-        user.setPhone(request.getPhone());
+        user.setPhone(ContactDetails.normalizePhone(request.getPhone()));
         return toResponse(userRepository.save(user));
     }
 

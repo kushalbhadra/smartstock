@@ -78,6 +78,7 @@ public class PurchaseOrderController {
 
     @PostMapping("/{id}/receipts")
     @PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE_MGR')")
+    @Transactional
     public ResponseEntity<PurchaseOrderResponse> receive(
             @PathVariable Long id,
             @Valid @RequestBody PurchaseOrderReceiptRequest request,

@@ -10,6 +10,8 @@ import org.springframework.security.authentication.BadCredentialsException;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -46,5 +48,25 @@ class GlobalExceptionHandlerTest {
                 "Stock was updated by another user. "
                         + "Refresh stock levels and try again.",
                 ((Map<?, ?>) response.getBody()).get("message"));
+    }
+
+    @Test
+    void unexpectedTransferFailureIncludesSafeReferenceId() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getRequestURI()).thenReturn("/api/stocks/transfers");
+        when(request.getMethod()).thenReturn("POST");
+
+        var response = new GlobalExceptionHandler()
+                .handleGeneral(
+                        new IllegalStateException("database detail"),
+                        request);
+
+        Map<?, ?> body = (Map<?, ?>) response.getBody();
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertEquals(
+                "Stock transfer failed. No stock changes were saved.",
+                body.get("message"));
+        assertNotNull(body.get("referenceId"));
+        assertTrue(body.get("referenceId").toString().length() > 0);
     }
 }

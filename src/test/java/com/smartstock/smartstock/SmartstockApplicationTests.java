@@ -21,6 +21,7 @@ import com.smartstock.smartstock.repository.AuditEventRepository;
 import com.smartstock.smartstock.repository.NotificationRepository;
 import com.smartstock.smartstock.repository.ProductRepository;
 import com.smartstock.smartstock.repository.PurchaseOrderRepository;
+import com.smartstock.smartstock.repository.PurchaseOrderReceiptRepository;
 import com.smartstock.smartstock.repository.SupplierRepository;
 import com.smartstock.smartstock.repository.StockMovementRepository;
 import com.smartstock.smartstock.repository.StockRepository;
@@ -59,6 +60,9 @@ class SmartstockApplicationTests {
 
 	@Autowired
 	private PurchaseOrderRepository purchaseOrderRepository;
+
+	@Autowired
+	private PurchaseOrderReceiptRepository purchaseOrderReceiptRepository;
 
 	@Autowired
 	private UserRepository userRepository;
@@ -401,6 +405,56 @@ class SmartstockApplicationTests {
 				.andExpect(status().isBadRequest());
 		assertEquals(10, stockRepository.findById(stock.getId())
 				.orElseThrow().getQuantity());
+	}
+
+	@Test
+	@WithMockUser(username = "test-admin@example.invalid", roles = "ADMIN")
+	void firstPurchaseOrderReceiptCreatesMissingStockAllocation()
+			throws Exception {
+		PurchaseOrder order = savePendingPurchaseOrder();
+		assertTrue(stockRepository
+				.findByWarehouseIdAndProductId(
+						order.getWarehouse().getId(),
+						order.getProduct().getId())
+				.isEmpty());
+
+		mockMvc.perform(put("/api/purchase-orders/{id}/status", order.getId())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"status\":\"APPROVED\"}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("APPROVED"));
+
+		String referenceNumber = "FIRST-RECEIPT-"
+				+ UUID.randomUUID().toString().substring(0, 8);
+		mockMvc.perform(post(
+						"/api/purchase-orders/{id}/receipts", order.getId())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(receiptRequest(
+								4, order, referenceNumber)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status")
+						.value("PARTIALLY_RECEIVED"))
+				.andExpect(jsonPath("$.receivedQuantity").value(4))
+				.andExpect(jsonPath("$.remainingQuantity").value(6));
+
+		Stock stock = stockRepository
+				.findByWarehouseIdAndProductId(
+						order.getWarehouse().getId(),
+						order.getProduct().getId())
+				.orElseThrow();
+		assertEquals(4, stock.getQuantity());
+		assertEquals(0, stock.getMinQuantity());
+		assertEquals(order.getQuantity(), stock.getMaxQuantity());
+
+		var movements = stockMovementRepository
+				.findByStockIdOrderByCreatedAtDesc(stock.getId());
+		assertEquals(1, movements.size());
+		assertEquals(StockMovement.MovementType.INBOUND,
+				movements.getFirst().getMovementType());
+		assertEquals(4, movements.getFirst().getQuantity());
+		assertEquals(1, purchaseOrderReceiptRepository
+				.findByPurchaseOrderIdOrderByReceivedDateAsc(order.getId())
+				.size());
 	}
 
 	@Test

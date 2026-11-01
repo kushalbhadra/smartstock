@@ -41,6 +41,26 @@ notification target and type values, adds `PURCHASE_ORDER` and the purchase
 order notification types, and does not modify notification rows or recreate
 the table.
 
+Purchase order receipts persist `PARTIALLY_RECEIVED` and `RECEIVED` statuses.
+Ensure the production `purchase_orders_status_check` constraint permits these
+values before deploying the receipt workflow:
+
+```sql
+ALTER TABLE public.purchase_orders
+    DROP CONSTRAINT purchase_orders_status_check;
+
+ALTER TABLE public.purchase_orders
+    ADD CONSTRAINT purchase_orders_status_check
+    CHECK (status IN (
+        'PENDING',
+        'APPROVED',
+        'PARTIALLY_RECEIVED',
+        'RECEIVED',
+        'DELIVERED',
+        'CANCELLED'
+    ));
+```
+
 Manager purchase-order approval is disabled by default. To enable it, set
 `APP_PERMISSIONS_MANAGER_APPROVE_PURCHASE_ORDERS=true` in the application
 environment. Managers can only approve orders for their assigned warehouse,

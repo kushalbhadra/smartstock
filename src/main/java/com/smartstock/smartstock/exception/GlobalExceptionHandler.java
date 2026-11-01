@@ -1,6 +1,8 @@
 package com.smartstock.smartstock.exception;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -16,11 +18,14 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 // @RestControllerAdvice = applies to ALL controllers
 // Catches exceptions before they reach the client
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    private static final Logger LOGGER =
+            LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     // Standard error response structure
     private Map<String, Object> buildError(int status,
@@ -139,14 +144,18 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleGeneral(
             Exception ex,
             HttpServletRequest request) {
+        String referenceId = UUID.randomUUID().toString();
+        LOGGER.error("Unexpected error [{}] processing {} {}",
+                referenceId, request.getMethod(), request.getRequestURI(), ex);
 
-        // Log the actual error internally
-        // Never expose internal details to client
-        System.err.println("Unexpected error: " + ex.getMessage());
-
+        String message = request.getRequestURI().equals("/api/stocks/transfers")
+                ? "Stock transfer failed. No stock changes were saved."
+                : "An unexpected error occurred";
+        Map<String, Object> body = buildError(
+                500, "Internal Server Error", message,
+                request.getRequestURI());
+        body.put("referenceId", referenceId);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(buildError(500, "Internal Server Error",
-                        "An unexpected error occurred",
-                        request.getRequestURI()));
+                .body(body);
     }
 }

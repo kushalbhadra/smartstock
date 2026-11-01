@@ -223,6 +223,22 @@ class StockServiceTest {
                 .thenReturn(Optional.empty());
         when(stockRepository.sumStorageCapacityByWarehouseId(7L))
                 .thenReturn(BigDecimal.ZERO);
+        when(stockRepository.save(any(Stock.class)))
+                .thenAnswer(invocation -> {
+                    Stock savedStock = invocation.getArgument(0);
+                    if (savedStock.getId() == null) {
+                        return Stock.builder()
+                                .id(99L)
+                                .warehouse(savedStock.getWarehouse())
+                                .product(savedStock.getProduct())
+                                .quantity(savedStock.getQuantity())
+                                .minQuantity(savedStock.getMinQuantity())
+                                .maxQuantity(savedStock.getMaxQuantity())
+                                .version(0)
+                                .build();
+                    }
+                    return savedStock;
+                });
         when(movementRepository.saveAll(anyList()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -248,8 +264,10 @@ class StockServiceTest {
                             || !iterator.hasNext()) {
                         return false;
                     }
-                    return iterator.next().getMovementType()
+                    StockMovement destinationMovement = iterator.next();
+                    return destinationMovement.getMovementType()
                             == StockMovement.MovementType.TRANSFER_IN
+                            && destinationMovement.getStock().getId() == 99L
                             && !iterator.hasNext();
                 }));
     }

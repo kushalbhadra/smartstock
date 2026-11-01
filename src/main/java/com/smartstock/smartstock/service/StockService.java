@@ -348,6 +348,41 @@ public class StockService {
         return toMovementResponse(saved);
     }
 
+    public StockMovementResponse recordPurchaseOrderReceipt(
+            Long warehouseId,
+            Long productId,
+            int quantity,
+            int orderedQuantity,
+            String referenceNumber,
+            String reason,
+            Long performedByUserId) {
+        Product product = productRepository.findByIdForUpdate(productId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Product", "id", productId));
+        Warehouse warehouse = warehouseRepository.findByIdForUpdate(warehouseId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Warehouse", "id", warehouseId));
+        stockRepository.findByWarehouseIdAndProductIdForUpdate(
+                        warehouseId, productId)
+                .orElseGet(() -> stockRepository.save(Stock.builder()
+                        .warehouse(warehouse)
+                        .product(product)
+                        .quantity(0)
+                        .minQuantity(0)
+                        .maxQuantity(orderedQuantity)
+                        .build()));
+
+        StockMovementRequest movementRequest = new StockMovementRequest();
+        movementRequest.setWarehouseId(warehouseId);
+        movementRequest.setProductId(productId);
+        movementRequest.setMovementType(
+                StockMovement.MovementType.INBOUND);
+        movementRequest.setQuantity(quantity);
+        movementRequest.setReferenceNumber(referenceNumber);
+        movementRequest.setReason(reason);
+        return recordMovement(movementRequest, performedByUserId);
+    }
+
     public Stock createStock(Stock stock) {
         return createStock(stock, null);
     }
@@ -502,8 +537,8 @@ public class StockService {
             destination = capacityStock;
         }
         destination.setQuantity(destinationAfter);
-        stockRepository.save(source);
-        stockRepository.save(destination);
+        source = stockRepository.save(source);
+        destination = stockRepository.save(destination);
 
         StockMovement sourceMovement = StockMovement.builder()
                 .stock(source)

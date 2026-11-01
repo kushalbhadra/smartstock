@@ -3,13 +3,11 @@ package com.smartstock.smartstock.service;
 import com.smartstock.smartstock.dto.PurchaseOrderRequest;
 import com.smartstock.smartstock.dto.PurchaseOrderResponse;
 import com.smartstock.smartstock.dto.PurchaseOrderReceiptRequest;
-import com.smartstock.smartstock.dto.StockMovementRequest;
 import com.smartstock.smartstock.entity.PurchaseOrder;
 import com.smartstock.smartstock.entity.Product;
 import com.smartstock.smartstock.entity.Supplier;
 import com.smartstock.smartstock.entity.User;
 import com.smartstock.smartstock.entity.Warehouse;
-import com.smartstock.smartstock.entity.StockMovement;
 import com.smartstock.smartstock.exception.BusinessException;
 import com.smartstock.smartstock.exception.ResourceNotFoundException;
 import com.smartstock.smartstock.repository.ProductRepository;
@@ -242,15 +240,14 @@ public class PurchaseOrderService {
                             + "; requested: " + request.getQuantity() + ".");
         }
 
-        StockMovementRequest movementRequest = new StockMovementRequest();
-        movementRequest.setWarehouseId(order.getWarehouse().getId());
-        movementRequest.setProductId(order.getProduct().getId());
-        movementRequest.setMovementType(StockMovement.MovementType.INBOUND);
-        movementRequest.setQuantity(request.getQuantity());
-        movementRequest.setReferenceNumber(referenceNumber);
-        movementRequest.setReason("Purchase order " + order.getPoNumber()
-                + " receipt");
-        stockService.recordMovement(movementRequest, actor.getId());
+        stockService.recordPurchaseOrderReceipt(
+                order.getWarehouse().getId(),
+                order.getProduct().getId(),
+                request.getQuantity(),
+                order.getQuantity(),
+                referenceNumber,
+                "Purchase order " + order.getPoNumber() + " receipt",
+                actor.getId());
 
         receiptRepository.save(com.smartstock.smartstock.entity
                 .PurchaseOrderReceipt.builder()

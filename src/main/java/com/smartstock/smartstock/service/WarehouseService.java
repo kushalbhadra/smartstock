@@ -2,6 +2,7 @@
 package com.smartstock.smartstock.service;
 
 import com.smartstock.smartstock.dto.WarehouseResponse;
+import com.smartstock.smartstock.dto.WarehouseOption;
 import com.smartstock.smartstock.entity.Warehouse;
 import com.smartstock.smartstock.entity.User;
 import com.smartstock.smartstock.exception.ResourceNotFoundException;
@@ -54,6 +55,24 @@ public class WarehouseService {
         return warehouses
                 .stream()
                 .map(this::toResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<WarehouseOption> getTransferDestinations(String email) {
+        User user = findUser(email);
+        if (user.getRole() != User.Role.ADMIN
+                && user.getRole() != User.Role.WAREHOUSE_MGR) {
+            throw new AccessDeniedException(
+                    "Only administrators and warehouse managers can transfer stock.");
+        }
+        if (user.getRole() == User.Role.WAREHOUSE_MGR
+                && user.getWarehouse() == null) {
+            return List.of();
+        }
+        return warehouseRepository.findAll().stream()
+                .map(warehouse -> new WarehouseOption(
+                        warehouse.getId(), warehouse.getName()))
                 .toList();
     }
 

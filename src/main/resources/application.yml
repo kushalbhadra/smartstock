@@ -9,6 +9,14 @@ spring:
     password: ${SUPABASE_PASSWORD}
 
 
+    hikari:
+      maximum-pool-size: 3
+      minimum-idle: 1
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1500000
+      pool-name: SmartStockHikariPool
+
   jpa:
     hibernate:
       ddl-auto: update

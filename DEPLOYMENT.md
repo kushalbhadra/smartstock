@@ -30,6 +30,22 @@ notifications. The production profile validates rather than mutates the
 database schema; provision and verify the schema before rollout.
 The frontend's `VITE_API_BASE_URL` is embedded at build time and must point to
 the public HTTPS API URL.
+The authenticated `GET /api/dashboard/summary` endpoint supplies role-scoped
+dashboard aggregates and chart previews; it does not derive inventory value
+from product selling prices.
+
+Before deploying purchase-order notifications, apply the reviewed migration in
+`database/migrations/20261101_allow_purchase_order_notifications.sql` through
+the production database migration process. It preserves all existing
+notification target and type values, adds `PURCHASE_ORDER` and the purchase
+order notification types, and does not modify notification rows or recreate
+the table.
+
+Manager purchase-order approval is disabled by default. To enable it, set
+`APP_PERMISSIONS_MANAGER_APPROVE_PURCHASE_ORDERS=true` in the application
+environment. Managers can only approve orders for their assigned warehouse,
+and cannot approve an order they created. Administrators retain approval
+access regardless of this setting.
 
 Before deploying the in-app notifications feature with the production
 `validate` profile, provision its table and indexes:

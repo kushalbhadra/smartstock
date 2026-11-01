@@ -1,6 +1,7 @@
 package com.smartstock.smartstock.service;
 
 import com.smartstock.smartstock.dto.StockMovementRequest;
+import com.smartstock.smartstock.dto.StockResponse;
 import com.smartstock.smartstock.dto.StockTransferRequest;
 import com.smartstock.smartstock.entity.Product;
 import com.smartstock.smartstock.entity.Stock;
@@ -20,9 +21,15 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.util.Optional;
+import java.util.List;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -88,7 +95,8 @@ class StockServiceTest {
                 .thenReturn(Optional.of(stock.getWarehouse()));
         lenient().when(stockRepository.sumStorageCapacityByWarehouseId(2L))
                 .thenReturn(BigDecimal.valueOf(8));
-        when(userRepository.findById(5L)).thenReturn(Optional.of(user));
+        lenient().when(userRepository.findById(5L))
+                .thenReturn(Optional.of(user));
     }
 
     @Test
@@ -201,7 +209,9 @@ class StockServiceTest {
     }
 
     @Test
-    void transfersStockAtomicallyAndCreatesPairedMovements() {
+    void managerTransfersFromAssignedWarehouseToAnotherDestination() {
+        user.setRole(User.Role.WAREHOUSE_MGR);
+        user.setWarehouse(stock.getWarehouse());
         Warehouse destinationWarehouse = Warehouse.builder()
                 .id(7L)
                 .name("Overflow warehouse")
@@ -245,6 +255,23 @@ class StockServiceTest {
     }
 
     @Test
+    void warehouseManagerCannotTransferStockFromAnUnassignedWarehouse() {
+        user.setRole(User.Role.WAREHOUSE_MGR);
+        user.setWarehouse(stock.getWarehouse());
+        StockTransferRequest request = new StockTransferRequest();
+        request.setSourceWarehouseId(9L);
+        request.setDestinationWarehouseId(7L);
+        request.setProductId(3L);
+        request.setQuantity(1);
+
+        assertThrows(AccessDeniedException.class,
+                () -> stockService.transfer(request, 5L));
+
+        verifyNoInteractions(productRepository, warehouseRepository,
+                movementRepository);
+    }
+
+    @Test
     void warehouseManagerCannotMoveStockInAnotherWarehouse() {
         Warehouse assignedWarehouse = Warehouse.builder()
                 .id(9L)
@@ -258,6 +285,231 @@ class StockServiceTest {
 
         assertEquals(8, stock.getQuantity());
         verifyNoInteractions(movementRepository, notificationService);
+    }
+
+    @Test
+    void searchesHistoryWithNoOptionalFilters() {
+        when(userRepository.findByEmail(user.getEmail()))
+                .thenReturn(Optional.of(user));
+        when(movementRepository.findAll(
+                org.mockito.ArgumentMatchers
+                        .<Specification<StockMovement>>any(),
+                any(Pageable.class)))
+                .thenReturn(Page.empty());
+
+        stockService.getMovementHistory(
+                user.getEmail(), null, null, null, null, "   ", 0, 20);
+
+        org.mockito.ArgumentCaptor<Pageable> pageable =
+                org.mockito.ArgumentCaptor.forClass(Pageable.class);
+        verify(movementRepository).findAll(
+                org.mockito.ArgumentMatchers
+                        .<Specification<StockMovement>>any(),
+                pageable.capture());
+        assertEquals(0, pageable.getValue().getPageNumber());
+        assertEquals(20, pageable.getValue().getPageSize());
+        assertEquals(Sort.Direction.DESC,
+                pageable.getValue().getSort()
+                        .getOrderFor("createdAt").getDirection());
+    }
+
+    @Test
+    void appliesAllProvidedHistoryFiltersToDynamicQuery() {
+        when(userRepository.findByEmail(user.getEmail()))
+                .thenReturn(Optional.of(user));
+        when(movementRepository.findAll(
+                org.mockito.ArgumentMatchers
+                        .<Specification<StockMovement>>any(),
+                any(Pageable.class)))
+                .thenReturn(Page.empty());
+
+        stockService.getMovementHistory(
+                user.getEmail(),
+                StockMovement.MovementType.INBOUND,
+                2L,
+                LocalDate.of(2026, 1, 1),
+                LocalDate.of(2026, 1, 31),
+                "  widget  ",
+                2,
+                15);
+
+        org.mockito.ArgumentCaptor<Pageable> pageable =
+                org.mockito.ArgumentCaptor.forClass(Pageable.class);
+        verify(movementRepository).findAll(
+                org.mockito.ArgumentMatchers
+                        .<Specification<StockMovement>>any(),
+                pageable.capture());
+        assertEquals(2, pageable.getValue().getPageNumber());
+        assertEquals(15, pageable.getValue().getPageSize());
+    }
+
+    @Test
+    void exportsMovementsUsingSearchFreeQueryForBlankSearch() {
+        when(userRepository.findByEmail(user.getEmail()))
+                .thenReturn(Optional.of(user));
+        when(movementRepository.findAll(
+                org.mockito.ArgumentMatchers
+                        .<Specification<StockMovement>>any(),
+                any(Sort.class)))
+                .thenReturn(List.of());
+
+        List<StockMovement> result = stockService.getMovementsForExport(
+                user.getEmail(),
+                StockMovement.MovementType.INBOUND,
+                9L,
+                LocalDate.of(2026, 1, 1),
+                LocalDate.of(2026, 1, 31),
+                " ");
+
+        assertEquals(List.of(), result);
+        org.mockito.ArgumentCaptor<Sort> sort =
+                org.mockito.ArgumentCaptor.forClass(Sort.class);
+        verify(movementRepository).findAll(
+                org.mockito.ArgumentMatchers
+                        .<Specification<StockMovement>>any(),
+                sort.capture());
+        assertEquals(Sort.Direction.DESC,
+                sort.getValue().getOrderFor("createdAt").getDirection());
+    }
+
+    @Test
+    void createsAllocationWhenProductIsNotYetInWarehouse() {
+        when(stockRepository.findByWarehouseIdAndProductIdForUpdate(2L, 3L))
+                .thenReturn(Optional.empty());
+        when(stockRepository.sumStorageCapacityByWarehouseId(2L))
+                .thenReturn(BigDecimal.ZERO);
+        when(stockRepository.save(any(Stock.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        Stock allocation = allocation(5, 1, 10, stock.getWarehouse());
+
+        Stock saved = stockService.createStock(allocation, null);
+
+        assertEquals(5, saved.getQuantity());
+        assertEquals(stock.getProduct(), saved.getProduct());
+        verify(stockRepository).save(allocation);
+        verify(notificationService).onStockChanged(allocation);
+    }
+
+    @Test
+    void allowsSameProductAllocationInAnotherWarehouse() {
+        Warehouse anotherWarehouse = Warehouse.builder()
+                .id(7L)
+                .name("Second warehouse")
+                .capacity(10)
+                .build();
+        when(warehouseRepository.findByIdForUpdate(7L))
+                .thenReturn(Optional.of(anotherWarehouse));
+        when(stockRepository.findByWarehouseIdAndProductIdForUpdate(7L, 3L))
+                .thenReturn(Optional.empty());
+        when(stockRepository.sumStorageCapacityByWarehouseId(7L))
+                .thenReturn(BigDecimal.ZERO);
+        when(stockRepository.save(any(Stock.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        Stock saved = stockService.createStock(
+                allocation(5, 1, 10, anotherWarehouse), null);
+
+        assertEquals(7L, saved.getWarehouse().getId());
+        verify(stockRepository).save(saved);
+    }
+
+    @Test
+    void rejectsDuplicateAllocationWithInboundMovementGuidance() {
+        when(stockRepository.findByWarehouseIdAndProductIdForUpdate(2L, 3L))
+                .thenReturn(Optional.of(stock));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> stockService.createStock(
+                        allocation(5, 1, 10, stock.getWarehouse()), null));
+
+        assertEquals(
+                "This product already has a stock allocation in this "
+                        + "warehouse. Use an inbound stock movement to "
+                        + "increase the quantity.",
+                exception.getMessage());
+        verify(stockRepository, never()).save(any(Stock.class));
+    }
+
+    @Test
+    void rejectsAllocationQuantityAboveMaximum() {
+        when(stockRepository.findByWarehouseIdAndProductIdForUpdate(2L, 3L))
+                .thenReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> stockService.createStock(
+                        allocation(11, 0, 10, stock.getWarehouse()), null));
+
+        assertEquals("Initial stock cannot exceed the product maximum.",
+                exception.getMessage());
+        verify(stockRepository, never()).save(any(Stock.class));
+    }
+
+    @Test
+    void rejectsMinimumQuantityAboveMaximum() {
+        when(stockRepository.findByWarehouseIdAndProductIdForUpdate(2L, 3L))
+                .thenReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> stockService.createStock(
+                        allocation(5, 11, 10, stock.getWarehouse()), null));
+
+        assertEquals("Stock, minimum and maximum quantities are invalid.",
+                exception.getMessage());
+        verify(stockRepository, never()).save(any(Stock.class));
+    }
+
+    @Test
+    void rejectsAllocationThatExceedsWarehouseCapacity() {
+        stock.getProduct().setStorageCapacityFactor(BigDecimal.valueOf(2));
+        when(stockRepository.findByWarehouseIdAndProductIdForUpdate(2L, 3L))
+                .thenReturn(Optional.empty());
+        when(stockRepository.sumStorageCapacityByWarehouseId(2L))
+                .thenReturn(BigDecimal.valueOf(9));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> stockService.createStock(
+                        allocation(1, 0, 10, stock.getWarehouse()), null));
+
+        org.junit.jupiter.api.Assertions.assertTrue(
+                exception.getMessage().contains("Warehouse capacity exceeded"));
+        verify(stockRepository, never()).save(any(Stock.class));
+    }
+
+    @Test
+    void allocationResponseUsesStockResponseFields() {
+        when(stockRepository.findByWarehouseIdAndProductIdForUpdate(2L, 3L))
+                .thenReturn(Optional.empty());
+        when(stockRepository.sumStorageCapacityByWarehouseId(2L))
+                .thenReturn(BigDecimal.ZERO);
+        when(stockRepository.save(any(Stock.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        StockResponse response = stockService.createStockResponse(
+                allocation(5, 1, 10, stock.getWarehouse()), null);
+
+        assertEquals(2L, response.getWarehouseId());
+        assertEquals("Main warehouse", response.getWarehouseName());
+        assertEquals(3L, response.getProductId());
+        assertEquals("Widget", response.getProductName());
+        assertEquals(5, response.getQuantity());
+        assertEquals(1, response.getMinQuantity());
+        assertEquals(10, response.getMaxQuantity());
+    }
+
+    private Stock allocation(
+            int quantity, int minQuantity, int maxQuantity,
+            Warehouse warehouse) {
+        return Stock.builder()
+                .warehouse(warehouse)
+                .product(stock.getProduct())
+                .quantity(quantity)
+                .minQuantity(minQuantity)
+                .maxQuantity(maxQuantity)
+                .build();
     }
 
     private StockMovementRequest request(

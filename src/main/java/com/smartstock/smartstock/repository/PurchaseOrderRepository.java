@@ -26,6 +26,13 @@ public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, Lo
 
     boolean existsByProductId(Long productId);
 
+    @Query("""
+            select distinct po.product.id from PurchaseOrder po
+            where po.product.id in :productIds
+            """)
+    List<Long> findProductIdsWithPurchaseOrders(
+            @Param("productIds") List<Long> productIds);
+
     boolean existsBySupplierId(Long supplierId);
 
     List<PurchaseOrder> findByWarehouseId(Long warehouseId);
@@ -39,4 +46,28 @@ public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, Lo
 
     // Count pending orders — for dashboard
     long countByStatus(PurchaseOrder.Status status);
+
+    long countByWarehouseIdAndStatus(
+            Long warehouseId, PurchaseOrder.Status status);
+
+    List<PurchaseOrder> findTop5ByOrderByCreatedAtDesc();
+
+    List<PurchaseOrder> findTop5ByWarehouseIdOrderByCreatedAtDesc(
+            Long warehouseId);
+
+    @Query("""
+            SELECT p.status, COUNT(p)
+            FROM PurchaseOrder p
+            GROUP BY p.status
+            """)
+    List<Object[]> getStatusCounts();
+
+    @Query("""
+            SELECT p.status, COUNT(p)
+            FROM PurchaseOrder p
+            WHERE p.warehouse.id = :warehouseId
+            GROUP BY p.status
+            """)
+    List<Object[]> getStatusCountsByWarehouseId(
+            @Param("warehouseId") Long warehouseId);
 }

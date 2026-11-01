@@ -104,7 +104,12 @@ public class SecurityConfig {
                         // Inventory writes are limited to admins and managers.
                         .requestMatchers(HttpMethod.POST, "/api/stocks/movements")
                         .hasAnyRole("ADMIN", "WAREHOUSE_MGR")
+                        .requestMatchers(HttpMethod.POST, "/api/stocks/transfers")
+                        .hasAnyRole("ADMIN", "WAREHOUSE_MGR")
                         .requestMatchers(HttpMethod.POST, "/api/purchase-orders")
+                        .hasAnyRole("ADMIN", "WAREHOUSE_MGR")
+                        .requestMatchers(HttpMethod.PUT,
+                                "/api/purchase-orders/*/status")
                         .hasAnyRole("ADMIN", "WAREHOUSE_MGR")
                         .requestMatchers(HttpMethod.POST,
                                 "/api/support/tickets")

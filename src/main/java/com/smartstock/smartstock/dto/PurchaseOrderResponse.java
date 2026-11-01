@@ -20,9 +20,15 @@ public record PurchaseOrderResponse(
         PurchaseOrder.Status status,
         LocalDate expectedDate,
         UserSummary createdBy,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        boolean canApprove
 ) {
     public static PurchaseOrderResponse from(PurchaseOrder order) {
+        return from(order, false);
+    }
+
+    public static PurchaseOrderResponse from(
+            PurchaseOrder order, boolean canApprove) {
         return new PurchaseOrderResponse(
                 order.getId(),
                 order.getPoNumber(),
@@ -55,7 +61,8 @@ public record PurchaseOrderResponse(
                         order.getCreatedBy().getName(),
                         order.getCreatedBy().getEmail()
                 ),
-                order.getCreatedAt()
+                order.getCreatedAt(),
+                canApprove
         );
     }
 

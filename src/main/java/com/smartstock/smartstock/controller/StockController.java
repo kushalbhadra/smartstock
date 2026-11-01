@@ -111,7 +111,7 @@ public class StockController {
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Stock> createStock(
+    public ResponseEntity<StockResponse> createStock(
             @RequestBody Map<String, Object> body,
             @AuthenticationPrincipal UserDetails userDetails) {
 
@@ -147,7 +147,8 @@ public class StockController {
 
         User actor = userRepository.findByEmail(userDetails.getUsername())
                 .orElseThrow();
-        Stock saved = stockService.createStock(stock, actor.getId());
+        StockResponse saved = stockService.createStockResponse(
+                stock, actor.getId());
         return ResponseEntity.status(HttpStatus.CREATED).body(saved);
     }
 
@@ -171,7 +172,7 @@ public class StockController {
     }
 
     @PostMapping("/transfers")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE_MGR')")
     public ResponseEntity<List<StockMovementResponse>> transfer(
             @Valid @RequestBody StockTransferRequest request,
             @AuthenticationPrincipal UserDetails userDetails) {

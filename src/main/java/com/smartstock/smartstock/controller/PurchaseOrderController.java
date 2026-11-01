@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -54,14 +55,19 @@ public class PurchaseOrderController {
     }
 
     @PutMapping("/{id}/status")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE_MGR')")
+    @Transactional
     public ResponseEntity<PurchaseOrderResponse> updateStatus(
             @PathVariable Long id,
             @Valid @RequestBody PurchaseOrderStatusRequest request,
             @AuthenticationPrincipal UserDetails userDetails
     ) {
         PurchaseOrderResponse response = purchaseOrderService.updateStatus(
-                id, request.getStatus());
+                id,
+                request.getStatus(),
+                userDetails.getUsername(),
+                userDetails.getAuthorities().stream().anyMatch(authority ->
+                        authority.getAuthority().equals("ROLE_ADMIN")));
         auditEventService.record(userDetails.getUsername(),
                 userDetails.getUsername(), "UPDATED_STATUS",
                 "PURCHASE_ORDER", response.id(),

@@ -3,6 +3,7 @@ package com.smartstock.smartstock.repository;
 import com.smartstock.smartstock.entity.Stock;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -54,6 +55,13 @@ public interface StockRepository extends JpaRepository<Stock, Long> {
     boolean existsByProductId(Long productId);
 
     @Query("""
+            SELECT DISTINCT s.product.id FROM Stock s
+            WHERE s.product.id IN :productIds
+            """)
+    List<Long> findProductIdsWithStock(
+            @Param("productIds") List<Long> productIds);
+
+    @Query("""
             SELECT COALESCE(SUM(s.quantity * s.product.storageCapacityFactor), 0)
             FROM Stock s
             WHERE s.warehouse.id = :warehouseId
@@ -71,4 +79,79 @@ public interface StockRepository extends JpaRepository<Stock, Long> {
     long countByWarehouseId(Long warehouseId);
 
     boolean existsByWarehouseId(Long warehouseId);
+
+    @Query("SELECT COALESCE(SUM(s.quantity), 0) FROM Stock s")
+    long sumQuantity();
+
+    @Query("""
+            SELECT COUNT(s)
+            FROM Stock s
+            WHERE s.quantity < s.minQuantity
+            """)
+    long countLowStockItems();
+
+    @Query("""
+            SELECT COUNT(s)
+            FROM Stock s
+            WHERE s.warehouse.id = :warehouseId
+              AND s.quantity < s.minQuantity
+            """)
+    long countLowStockItemsByWarehouseId(
+            @Param("warehouseId") Long warehouseId);
+
+    long countByQuantity(Integer quantity);
+
+    long countByWarehouseIdAndQuantity(Long warehouseId, Integer quantity);
+
+    @Query("SELECT COUNT(s) FROM Stock s WHERE s.quantity > s.maxQuantity")
+    long countOverstockItems();
+
+    @Query("""
+            SELECT COUNT(s) FROM Stock s
+            WHERE s.warehouse.id = :warehouseId
+              AND s.quantity > s.maxQuantity
+            """)
+    long countOverstockItemsByWarehouseId(
+            @Param("warehouseId") Long warehouseId);
+
+    @Query("""
+            SELECT s FROM Stock s
+            WHERE s.quantity < s.minQuantity
+            ORDER BY (s.minQuantity - s.quantity) DESC, s.id
+            """)
+    List<Stock> findTopLowStockItems(Pageable pageable);
+
+    @Query("""
+            SELECT s FROM Stock s
+            WHERE s.warehouse.id = :warehouseId
+              AND s.quantity < s.minQuantity
+            ORDER BY (s.minQuantity - s.quantity) DESC, s.id
+            """)
+    List<Stock> findTopLowStockItemsByWarehouseId(
+            @Param("warehouseId") Long warehouseId,
+            Pageable pageable);
+
+    @Query("""
+            SELECT s.warehouse.id, s.warehouse.name, SUM(s.quantity)
+            FROM Stock s
+            GROUP BY s.warehouse.id, s.warehouse.name
+            """)
+    List<Object[]> getWarehouseStockDistribution();
+
+    @Query("""
+            SELECT s.warehouse.id, s.warehouse.name, SUM(s.quantity)
+            FROM Stock s
+            WHERE s.warehouse.id = :warehouseId
+            GROUP BY s.warehouse.id, s.warehouse.name
+            """)
+    List<Object[]> getWarehouseStockDistributionByWarehouseId(
+            @Param("warehouseId") Long warehouseId);
+
+    @Query("""
+            SELECT DISTINCT s.product.id
+            FROM Stock s
+            WHERE s.warehouse.id = :warehouseId
+            """)
+    List<Long> findProductIdsByWarehouseId(
+            @Param("warehouseId") Long warehouseId);
 }

@@ -3,6 +3,8 @@ package com.smartstock.smartstock.repository;
 import com.smartstock.smartstock.entity.DemandForecast;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -14,7 +16,23 @@ public interface DemandForecastRepository
     List<DemandForecast> findAllByOrderByCreatedAtDesc();
 
     @EntityGraph(attributePaths = "product")
+    List<DemandForecast> findTop5ByOrderByCreatedAtDesc();
+
+    @EntityGraph(attributePaths = "product")
+    List<DemandForecast> findTop5ByProductIdInOrderByCreatedAtDesc(
+            List<Long> productIds);
+
+    @EntityGraph(attributePaths = "product")
     List<DemandForecast> findByProductId(Long productId);
+
+    boolean existsByProductId(Long productId);
+
+    @Query("""
+            select distinct forecast.product.id from DemandForecast forecast
+            where forecast.product.id in :productIds
+            """)
+    List<Long> findProductIdsWithForecasts(
+            @Param("productIds") List<Long> productIds);
 
     @EntityGraph(attributePaths = "product")
     Optional<DemandForecast> findTopByProductIdOrderByCreatedAtDesc(Long productId);

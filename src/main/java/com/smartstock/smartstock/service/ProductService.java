@@ -8,21 +8,24 @@ import com.smartstock.smartstock.entity.User;
 import com.smartstock.smartstock.entity.Warehouse;
 import com.smartstock.smartstock.exception.BusinessException;
 import com.smartstock.smartstock.exception.ResourceNotFoundException;
+import com.smartstock.smartstock.repository.DemandForecastRepository;
 import com.smartstock.smartstock.repository.ProductRepository;
 import com.smartstock.smartstock.repository.PurchaseOrderRepository;
-import com.smartstock.smartstock.service.StockService;
 import com.smartstock.smartstock.repository.StockRepository;
+import com.smartstock.smartstock.repository.StockMovementRepository;
 import com.smartstock.smartstock.repository.UserRepository;
 import com.smartstock.smartstock.repository.WarehouseRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Comparator;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -47,6 +50,12 @@ public class ProductService {
     private PurchaseOrderRepository purchaseOrderRepository;
 
     @Autowired
+    private DemandForecastRepository demandForecastRepository;
+
+    @Autowired
+    private StockMovementRepository stockMovementRepository;
+
+    @Autowired
     private StockService stockService;
 
     @Autowired
@@ -56,14 +65,10 @@ public class ProductService {
   // @Cacheable(value = "products", key = "'all'")
     @Transactional(readOnly = true) // readOnly = faster for queries
     public List<ProductResponse> getAllProducts() {
-        return productRepository.findAll()
-                .stream()
-                .map(this::toResponse)  // convert each entity to DTO
-                .collect(Collectors.toList());
+        return toResponses(productRepository.findAll());
     }
 
     // Get single product by ID
-    @Cacheable(value = "products", key = "#id")
     @Transactional(readOnly = true)
     public ProductResponse getProductById(Long id) {
         Product product = productRepository.findById(id)
@@ -189,11 +194,14 @@ public class ProductService {
         if (!productRepository.existsById(id)) {
             throw new ResourceNotFoundException("Product", "id", id);
         }
-        if (stockRepository.existsByProductId(id)
-                || purchaseOrderRepository.existsByProductId(id)) {
-            throw new BusinessException(
-                    "A product referenced by stock, purchase orders, or "
-                            + "movement history cannot be deleted.");
+        String deletionBlockedReason = deletionBlockedReason(
+                stockRepository.existsByProductId(id),
+                purchaseOrderRepository.existsByProductId(id),
+                demandForecastRepository.existsByProductId(id),
+                stockMovementRepository
+                        .existsByProductIdInMovementHistory(id));
+        if (deletionBlockedReason != null) {
+            throw new BusinessException(deletionBlockedReason);
         }
 
         productRepository.deleteById(id);
@@ -202,15 +210,65 @@ public class ProductService {
     // Search products
     @Transactional(readOnly = true)
     public List<ProductResponse> searchProducts(String keyword) {
-        return productRepository
-                .findByNameContainingIgnoreCase(keyword)
-                .stream()
-                .map(this::toResponse)
-                .collect(Collectors.toList());
+        return toResponses(productRepository.findByNameContainingIgnoreCase(
+                keyword));
     }
 
     // Entity to DTO conversion — private helper method
     private ProductResponse toResponse(Product product) {
+        String blockedReason = deletionBlockedReason(
+                stockRepository.existsByProductId(product.getId()),
+                purchaseOrderRepository.existsByProductId(product.getId()),
+                demandForecastRepository.existsByProductId(product.getId()),
+                stockMovementRepository
+                        .existsByProductIdInMovementHistory(product.getId()));
+        return toResponse(product, blockedReason);
+    }
+
+    private List<ProductResponse> toResponses(List<Product> products) {
+        if (products.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> productIds = products.stream()
+                .map(Product::getId)
+                .toList();
+        Set<Long> productIdsWithStock = new HashSet<>(
+                stockRepository.findProductIdsWithStock(productIds));
+        Set<Long> productIdsWithPurchaseOrders = new HashSet<>(
+                purchaseOrderRepository.findProductIdsWithPurchaseOrders(
+                        productIds));
+        Set<Long> productIdsWithForecasts = new HashSet<>(
+                demandForecastRepository.findProductIdsWithForecasts(
+                        productIds));
+        Set<Long> productIdsWithMovements = new HashSet<>(
+                stockMovementRepository
+                        .findProductIdsWithMovementHistory(productIds));
+
+        return products.stream()
+                .map(product -> {
+                    List<String> references = new ArrayList<>();
+                    Long id = product.getId();
+                    if (productIdsWithStock.contains(id)) {
+                        references.add("stock records");
+                    }
+                    if (productIdsWithPurchaseOrders.contains(id)) {
+                        references.add("purchase orders");
+                    }
+                    if (productIdsWithForecasts.contains(id)) {
+                        references.add("demand forecasts");
+                    }
+                    if (productIdsWithMovements.contains(id)) {
+                        references.add("movement history");
+                    }
+                    return toResponse(product,
+                            deletionBlockedReason(references));
+                })
+                .collect(Collectors.toList());
+    }
+
+    private ProductResponse toResponse(
+            Product product, String deletionBlockedReason) {
         return ProductResponse.builder()
                 .id(product.getId())
                 .name(product.getName())
@@ -220,7 +278,37 @@ public class ProductService {
                 .price(product.getPrice())
                 .storageCapacityFactor(product.getStorageCapacityFactor())
                 .createdAt(product.getCreatedAt())
+                .canDelete(deletionBlockedReason == null)
+                .deletionBlockedReason(deletionBlockedReason)
                 .build();
+    }
+
+    private String deletionBlockedReason(
+            boolean hasStock,
+            boolean hasPurchaseOrders,
+            boolean hasForecasts,
+            boolean hasMovementHistory) {
+        List<String> references = new ArrayList<>();
+        if (hasStock) {
+            references.add("stock records");
+        }
+        if (hasPurchaseOrders) {
+            references.add("purchase orders");
+        }
+        if (hasForecasts) {
+            references.add("demand forecasts");
+        }
+        if (hasMovementHistory) {
+            references.add("movement history");
+        }
+        return deletionBlockedReason(references);
+    }
+
+    private String deletionBlockedReason(List<String> references) {
+        return references.isEmpty()
+                ? null
+                : "Cannot delete product because it has "
+                        + String.join(", ", references) + ".";
     }
 
     private void configureInitialAllocation(

@@ -9,11 +9,15 @@ import com.smartstock.smartstock.entity.*;
 import com.smartstock.smartstock.exception.BusinessException;
 import com.smartstock.smartstock.exception.ResourceNotFoundException;
 import com.smartstock.smartstock.repository.*;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Predicate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -117,7 +121,7 @@ public class StockService {
             if (user.getWarehouse() == null) {
                 Pageable pageable = PageRequest.of(
                         Math.max(0, requestedPage),
-                        Math.max(1, Math.min(requestedSize, 100)));
+                        Math.clamp(requestedSize, 1, 100));
                 return Page.empty(pageable);
             }
             warehouseId = user.getWarehouse().getId();
@@ -131,19 +135,16 @@ public class StockService {
         LocalDateTime end = to == null ? null : to.atTime(LocalTime.MAX);
         String search = requestedSearch == null
                 || requestedSearch.isBlank()
-                ? null : requestedSearch.trim();
+                ? "" : requestedSearch.trim();
         if (from != null && to != null && from.isAfter(to)) {
             throw new BusinessException(
                     "The start date must be on or before the end date.");
         }
-        return movementRepository.searchHistory(
-                        warehouseId,
-                        type,
-                        start,
-                        end,
-                        search,
-                        pageable)
-                .map(this::toMovementResponse);
+        Specification<StockMovement> specification = movementHistorySpec(
+                warehouseId, type, start, end, search);
+        Page<StockMovement> movements = movementRepository.findAll(
+                specification, pageable);
+        return movements.map(this::toMovementResponse);
     }
 
     @Transactional(readOnly = true)
@@ -166,13 +167,74 @@ public class StockService {
         }
         String search = requestedSearch == null
                 || requestedSearch.isBlank()
-                ? null : requestedSearch.trim();
-        return movementRepository.searchHistoryForExport(
-                warehouseId,
-                type,
-                from == null ? null : from.atStartOfDay(),
-                to == null ? null : to.atTime(LocalTime.MAX),
-                search);
+                ? "" : requestedSearch.trim();
+        LocalDateTime start = from == null ? null : from.atStartOfDay();
+        LocalDateTime end = to == null ? null : to.atTime(LocalTime.MAX);
+        List<StockMovement> movements = movementRepository.findAll(
+                movementHistorySpec(warehouseId, type, start, end, search),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+        movements.forEach(this::initializeMovementExportRelations);
+        return movements;
+    }
+
+    private Specification<StockMovement> movementHistorySpec(
+            Long warehouseId,
+            StockMovement.MovementType type,
+            LocalDateTime start,
+            LocalDateTime end,
+            String search) {
+        return (root, query, criteriaBuilder) -> {
+            List<Predicate> predicates = new java.util.ArrayList<>();
+            Join<StockMovement, Stock> stock = null;
+            if (warehouseId != null) {
+                stock = root.join("stock", JoinType.INNER);
+                predicates.add(criteriaBuilder.equal(
+                        stock.get("warehouse").get("id"), warehouseId));
+            }
+            if (type != null) {
+                predicates.add(criteriaBuilder.equal(
+                        root.get("movementType"), type));
+            }
+            if (start != null) {
+                predicates.add(criteriaBuilder.greaterThanOrEqualTo(
+                        root.get("createdAt"), start));
+            }
+            if (end != null) {
+                predicates.add(criteriaBuilder.lessThanOrEqualTo(
+                        root.get("createdAt"), end));
+            }
+            if (!search.isEmpty()) {
+                if (stock == null) {
+                    stock = root.join("stock", JoinType.INNER);
+                }
+                Join<Stock, Product> product =
+                        stock.join("product", JoinType.INNER);
+                String pattern = "%" + search.toLowerCase(
+                        java.util.Locale.ROOT) + "%";
+                predicates.add(criteriaBuilder.or(
+                        criteriaBuilder.like(
+                                criteriaBuilder.lower(product.get("name")),
+                                pattern),
+                        criteriaBuilder.like(
+                                criteriaBuilder.lower(product.get("sku")),
+                                pattern),
+                        criteriaBuilder.like(
+                                criteriaBuilder.lower(
+                                        root.get("referenceNumber")),
+                                pattern)));
+            }
+            return criteriaBuilder.and(
+                    predicates.toArray(Predicate[]::new));
+        };
+    }
+
+    private void initializeMovementExportRelations(StockMovement movement) {
+        org.hibernate.Hibernate.initialize(movement.getStock());
+        org.hibernate.Hibernate.initialize(
+                movement.getStock().getProduct());
+        org.hibernate.Hibernate.initialize(
+                movement.getStock().getWarehouse());
+        org.hibernate.Hibernate.initialize(movement.getPerformedBy());
     }
 
     public StockMovementResponse recordMovement(
@@ -304,8 +366,9 @@ public class StockService {
                         warehouse.getId(), stock.getProduct().getId())
                 .ifPresent(existing -> {
                     throw new BusinessException(
-                            "This product already has a stock allocation "
-                                    + "in the selected warehouse.");
+                            "This product already has a stock allocation in "
+                                    + "this warehouse. Use an inbound stock "
+                                    + "movement to increase the quantity.");
                 });
         if (stock.getQuantity() == null || stock.getQuantity() < 0
                 || stock.getMinQuantity() == null
@@ -320,7 +383,8 @@ public class StockService {
             throw new BusinessException(
                     "Initial stock cannot exceed the product maximum.");
         }
-        validateWarehouseCapacity(warehouse, null, 0, stock.getQuantity());
+        validateWarehouseCapacity(
+                warehouse, stock, 0, stock.getQuantity());
         Stock saved = stockRepository.save(stock);
         if (performedByUserId != null && stock.getQuantity() > 0) {
             User actor = userRepository.findById(performedByUserId)
@@ -341,6 +405,11 @@ public class StockService {
         return saved;
     }
 
+    public StockResponse createStockResponse(
+            Stock stock, Long performedByUserId) {
+        return toStockResponse(createStock(stock, performedByUserId));
+    }
+
     public List<StockMovementResponse> transfer(
             StockTransferRequest request, Long performedByUserId) {
         if (request.getSourceWarehouseId().equals(
@@ -352,7 +421,10 @@ public class StockService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "User", "id", performedByUserId));
         ensureWarehouseAccess(performedBy, request.getSourceWarehouseId());
-        ensureWarehouseAccess(performedBy, request.getDestinationWarehouseId());
+        if (performedBy.getRole() != User.Role.WAREHOUSE_MGR) {
+            ensureWarehouseAccess(performedBy,
+                    request.getDestinationWarehouseId());
+        }
         Product product = productRepository
                 .findByIdForUpdate(request.getProductId())
                 .orElseThrow(() -> new ResourceNotFoundException(

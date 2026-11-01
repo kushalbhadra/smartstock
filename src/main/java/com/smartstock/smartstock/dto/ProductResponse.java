@@ -19,4 +19,6 @@ public class ProductResponse {
     private BigDecimal price;
     private BigDecimal storageCapacityFactor;
     private LocalDateTime createdAt;
+    private boolean canDelete;
+    private String deletionBlockedReason;
 }

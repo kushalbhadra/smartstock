@@ -22,6 +22,7 @@ import com.smartstock.smartstock.exception.BusinessException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.util.List;
 
@@ -37,6 +38,7 @@ public class PurchaseOrderService {
     private final UserRepository userRepository;
     private final StockService stockService;
     private final NotificationService notificationService;
+    private final boolean managerApprovalEnabled;
 
     public PurchaseOrderService(
             PurchaseOrderRepository purchaseOrderRepository,
@@ -46,7 +48,9 @@ public class PurchaseOrderService {
             WarehouseRepository warehouseRepository,
             UserRepository userRepository,
             StockService stockService,
-            NotificationService notificationService
+            NotificationService notificationService,
+            @Value("${app.permissions.manager-approve-purchase-orders:false}")
+            boolean managerApprovalEnabled
     ) {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.receiptRepository = receiptRepository;
@@ -56,6 +60,7 @@ public class PurchaseOrderService {
         this.userRepository = userRepository;
         this.stockService = stockService;
         this.notificationService = notificationService;
+        this.managerApprovalEnabled = managerApprovalEnabled;
     }
 
     @Transactional(readOnly = true)
@@ -72,7 +77,10 @@ public class PurchaseOrderService {
         } else {
             orders = purchaseOrderRepository.findAll();
         }
-        return orders.stream().map(PurchaseOrderResponse::from).toList();
+        return orders.stream()
+                .map(order -> PurchaseOrderResponse.from(
+                        order, canApprove(user, order)))
+                .toList();
     }
 
     public PurchaseOrderResponse create(
@@ -117,24 +125,68 @@ public class PurchaseOrderService {
         PurchaseOrder saved = purchaseOrderRepository.save(order);
         saved.setPoNumber("PO-" + saved.getId());
         saved = purchaseOrderRepository.save(saved);
-        return PurchaseOrderResponse.from(saved);
+        return PurchaseOrderResponse.from(saved, false);
     }
 
     public PurchaseOrderResponse updateStatus(
             Long id,
             PurchaseOrder.Status status
     ) {
+        return updateStatus(id, status, null, true);
+    }
+
+    public PurchaseOrderResponse updateStatus(
+            Long id,
+            PurchaseOrder.Status status,
+            String email
+    ) {
+        if (email == null || email.isBlank()) {
+            throw new AccessDeniedException(
+                    "An authenticated actor is required to change purchase "
+                            + "order status.");
+        }
+        return updateStatus(id, status, email, false);
+    }
+
+    public PurchaseOrderResponse updateStatus(
+            Long id,
+            PurchaseOrder.Status status,
+            String email,
+            boolean administrator
+    ) {
+        if (!administrator && (email == null || email.isBlank())) {
+            throw new AccessDeniedException(
+                    "An authenticated actor is required to change purchase "
+                            + "order status.");
+        }
         PurchaseOrder order = purchaseOrderRepository.findByIdForUpdate(id)
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
                                 "Purchase order", "id", id));
+        User actor = administrator || email == null ? null : findUser(email);
+        if (!administrator && actor != null) {
+            if (actor.getRole() == User.Role.WAREHOUSE_MGR) {
+                if (!managerApprovalEnabled
+                        || status != PurchaseOrder.Status.APPROVED) {
+                    throw new AccessDeniedException(
+                            "Warehouse managers are not permitted to change "
+                                    + "purchase order status.");
+                }
+                ensureManagerCanApprove(actor, order);
+            } else {
+                throw new AccessDeniedException(
+                        "Only administrators and permitted warehouse managers "
+                                + "can change purchase order status.");
+            }
+        }
         if (status == order.getStatus()) {
-            return PurchaseOrderResponse.from(order);
+            return PurchaseOrderResponse.from(
+                    order, actor != null && canApprove(actor, order));
         }
         boolean allowed = switch (order.getStatus()) {
             case PENDING -> status == PurchaseOrder.Status.APPROVED
                     || status == PurchaseOrder.Status.CANCELLED;
-            case APPROVED -> status == PurchaseOrder.Status.CANCELLED;
+            case APPROVED -> false;
             case PARTIALLY_RECEIVED, RECEIVED, DELIVERED, CANCELLED -> false;
         };
         if (!allowed) {
@@ -146,7 +198,8 @@ public class PurchaseOrderService {
         order.setStatus(status);
         PurchaseOrder saved = purchaseOrderRepository.save(order);
         notificationService.onPurchaseOrderStatus(saved);
-        return PurchaseOrderResponse.from(saved);
+        return PurchaseOrderResponse.from(
+                saved, actor != null && canApprove(actor, saved));
     }
 
     public PurchaseOrderResponse receive(
@@ -215,7 +268,36 @@ public class PurchaseOrderService {
                 : PurchaseOrder.Status.PARTIALLY_RECEIVED);
         PurchaseOrder saved = purchaseOrderRepository.save(order);
         notificationService.onPurchaseOrderStatus(saved);
-        return PurchaseOrderResponse.from(saved);
+        return PurchaseOrderResponse.from(saved, false);
+    }
+
+    private boolean canApprove(User user, PurchaseOrder order) {
+        if (order.getStatus() != PurchaseOrder.Status.PENDING) {
+            return false;
+        }
+        if (user.getRole() == User.Role.ADMIN) {
+            return true;
+        }
+        return user.getRole() == User.Role.WAREHOUSE_MGR
+                && managerApprovalEnabled
+                && user.getWarehouse() != null
+                && user.getWarehouse().getId().equals(
+                        order.getWarehouse().getId())
+                && !user.getId().equals(order.getCreatedBy().getId());
+    }
+
+    private void ensureManagerCanApprove(User actor, PurchaseOrder order) {
+        if (actor.getWarehouse() == null
+                || !actor.getWarehouse().getId().equals(
+                        order.getWarehouse().getId())) {
+            throw new AccessDeniedException(
+                    "Warehouse managers can approve only orders for their "
+                            + "assigned warehouse.");
+        }
+        if (actor.getId().equals(order.getCreatedBy().getId())) {
+            throw new AccessDeniedException(
+                    "The purchase order creator cannot approve their own order.");
+        }
     }
 
     private User findUser(String email) {

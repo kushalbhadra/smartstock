@@ -10,6 +10,7 @@ import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -69,6 +70,7 @@ public class ExcelService {
 
     // ── EXPORT STOCK LEVELS ───────────────────────────────────────────
 
+    @Transactional(readOnly = true)
     public byte[] exportStocks() throws IOException {
         List<Stock> stocks = stockRepository.findAll();
 

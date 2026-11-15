@@ -39,6 +39,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 
 @SpringBootTest
@@ -164,6 +166,29 @@ class SmartstockApplicationTests {
 	void viewerCannotReadAdminSettings() throws Exception {
 		mockMvc.perform(get("/api/settings"))
 				.andExpect(status().isForbidden());
+	}
+
+	@Test
+	@WithMockUser(username = "test-admin@example.invalid", roles = "ADMIN")
+	void adminCanDownloadStockLevelsAsExcel() throws Exception {
+		stockRepository.save(Stock.builder()
+				.product(saveTestProduct())
+				.warehouse(saveTestWarehouse())
+				.quantity(12)
+				.minQuantity(3)
+				.maxQuantity(30)
+				.build());
+
+		mockMvc.perform(get("/api/stocks/export"))
+				.andExpect(status().isOk())
+				.andExpect(content().contentTypeCompatibleWith(
+						"application/vnd.openxmlformats-officedocument"
+								+ ".spreadsheetml.sheet"))
+				.andExpect(header().string("Content-Disposition",
+						org.hamcrest.Matchers.containsString(
+								"stock-levels.xlsx")))
+				.andExpect(result -> assertTrue(
+						result.getResponse().getContentAsByteArray().length > 0));
 	}
 
 	@Test

@@ -4,19 +4,25 @@ import com.smartstock.smartstock.dto.ProductRequest;
 import com.smartstock.smartstock.dto.ProductResponse;
 import com.smartstock.smartstock.entity.Product;
 import com.smartstock.smartstock.entity.Stock;
+import com.smartstock.smartstock.entity.Notification;
 import com.smartstock.smartstock.entity.User;
 import com.smartstock.smartstock.entity.Warehouse;
 import com.smartstock.smartstock.exception.BusinessException;
 import com.smartstock.smartstock.exception.ResourceNotFoundException;
+import org.springframework.security.access.AccessDeniedException;
+import com.smartstock.smartstock.repository.AuditEventRepository;
 import com.smartstock.smartstock.repository.DemandForecastRepository;
+import com.smartstock.smartstock.repository.NotificationRepository;
 import com.smartstock.smartstock.repository.ProductRepository;
 import com.smartstock.smartstock.repository.PurchaseOrderRepository;
 import com.smartstock.smartstock.repository.StockRepository;
 import com.smartstock.smartstock.repository.StockMovementRepository;
+import com.smartstock.smartstock.repository.SupplierProductRepository;
 import com.smartstock.smartstock.repository.UserRepository;
 import com.smartstock.smartstock.repository.WarehouseRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -56,24 +62,67 @@ public class ProductService {
     private StockMovementRepository stockMovementRepository;
 
     @Autowired
+    private SupplierProductRepository supplierProductRepository;
+
+    @Autowired
+    private NotificationRepository notificationRepository;
+
+    @Autowired
+    private AuditEventRepository auditEventRepository;
+
+    @Autowired
     private StockService stockService;
 
     @Autowired
     private NotificationService notificationService;
 
-    // Get all products
-  // @Cacheable(value = "products", key = "'all'")
     @Transactional(readOnly = true) // readOnly = faster for queries
-    public List<ProductResponse> getAllProducts() {
+    public List<ProductResponse> getAllProducts(String email) {
+        User user = findUser(email);
+        if (user.getRole() == User.Role.WAREHOUSE_MGR) {
+            if (user.getWarehouse() == null) {
+                return List.of();
+            }
+            return toResponses(productRepository.findStockedByWarehouseId(
+                    user.getWarehouse().getId()));
+        }
         return toResponses(productRepository.findAll());
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProductResponse> getStockedProductsByWarehouse(
+            Long warehouseId, String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("User", "email", email));
+        if (user.getRole() == User.Role.WAREHOUSE_MGR
+                && (user.getWarehouse() == null
+                || !user.getWarehouse().getId().equals(warehouseId))) {
+            throw new AccessDeniedException(
+                    "Warehouse managers can access only their assigned warehouse");
+        }
+        warehouseRepository.findById(warehouseId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Warehouse", "id", warehouseId));
+        return toResponses(
+                productRepository.findStockedByWarehouseId(warehouseId));
     }
 
     // Get single product by ID
     @Transactional(readOnly = true)
-    public ProductResponse getProductById(Long id) {
+    public ProductResponse getProductById(Long id, String email) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Product", "id", id));
+        User user = findUser(email);
+        if (user.getRole() == User.Role.WAREHOUSE_MGR
+                && (user.getWarehouse() == null
+                || stockRepository.findByWarehouseIdAndProductId(
+                        user.getWarehouse().getId(), id).isEmpty())) {
+            throw new AccessDeniedException(
+                    "Warehouse managers can access only products stocked "
+                            + "in their assigned warehouse");
+        }
         return toResponse(product);
     }
 
@@ -190,39 +239,50 @@ public class ProductService {
     // Delete product
     @CacheEvict(value = "products", allEntries = true)
     public void deleteProduct(Long id) {
-
-        if (!productRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Product", "id", id);
-        }
-        String deletionBlockedReason = deletionBlockedReason(
-                stockRepository.existsByProductId(id),
-                purchaseOrderRepository.existsByProductId(id),
-                demandForecastRepository.existsByProductId(id),
-                stockMovementRepository
-                        .existsByProductIdInMovementHistory(id));
+        Product product = productRepository.findByIdForUpdate(id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Product", "id", id));
+        String deletionBlockedReason = deletionBlockedReason(id);
         if (deletionBlockedReason != null) {
             throw new BusinessException(deletionBlockedReason);
         }
 
-        productRepository.deleteById(id);
+        try {
+            productRepository.delete(product);
+            productRepository.flush();
+        } catch (DataIntegrityViolationException exception) {
+            throw new BusinessException(
+                    "Cannot delete product because it is still referenced "
+                            + "by business records. Refresh the product list "
+                            + "and review its related records.");
+        }
     }
 
     // Search products
     @Transactional(readOnly = true)
-    public List<ProductResponse> searchProducts(String keyword) {
+    public List<ProductResponse> searchProducts(String keyword, String email) {
+        User user = findUser(email);
+        if (user.getRole() == User.Role.WAREHOUSE_MGR) {
+            if (user.getWarehouse() == null) {
+                return List.of();
+            }
+            return toResponses(
+                    productRepository.searchStockedByWarehouseId(
+                            user.getWarehouse().getId(), keyword));
+        }
         return toResponses(productRepository.findByNameContainingIgnoreCase(
                 keyword));
     }
 
+    private User findUser(String email) {
+        return userRepository.findByEmail(email)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("User", "email", email));
+    }
+
     // Entity to DTO conversion — private helper method
     private ProductResponse toResponse(Product product) {
-        String blockedReason = deletionBlockedReason(
-                stockRepository.existsByProductId(product.getId()),
-                purchaseOrderRepository.existsByProductId(product.getId()),
-                demandForecastRepository.existsByProductId(product.getId()),
-                stockMovementRepository
-                        .existsByProductIdInMovementHistory(product.getId()));
-        return toResponse(product, blockedReason);
+        return toResponse(product, deletionBlockedReason(product.getId()));
     }
 
     private List<ProductResponse> toResponses(List<Product> products) {
@@ -244,6 +304,14 @@ public class ProductService {
         Set<Long> productIdsWithMovements = new HashSet<>(
                 stockMovementRepository
                         .findProductIdsWithMovementHistory(productIds));
+        Set<Long> productIdsWithSupplierMappings = new HashSet<>(
+                supplierProductRepository
+                        .findProductIdsWithSupplierMappings(productIds));
+        Set<Long> productIdsWithNotifications = new HashSet<>(
+                notificationRepository.findProductTargetIds(productIds));
+        Set<Long> productIdsWithAuditHistory = new HashSet<>(
+                auditEventRepository.findProductIdsWithAuditHistory(
+                        productIds));
 
         return products.stream()
                 .map(product -> {
@@ -261,10 +329,47 @@ public class ProductService {
                     if (productIdsWithMovements.contains(id)) {
                         references.add("movement history");
                     }
+                    if (productIdsWithSupplierMappings.contains(id)) {
+                        references.add("supplier-product mappings");
+                    }
+                    if (productIdsWithNotifications.contains(id)) {
+                        references.add("product notifications");
+                    }
+                    if (productIdsWithAuditHistory.contains(id)) {
+                        references.add("product audit history");
+                    }
                     return toResponse(product,
                             deletionBlockedReason(references));
                 })
                 .collect(Collectors.toList());
+    }
+
+    private String deletionBlockedReason(Long productId) {
+        List<String> references = new ArrayList<>();
+        if (stockRepository.existsByProductId(productId)) {
+            references.add("stock records");
+        }
+        if (purchaseOrderRepository.existsByProductId(productId)) {
+            references.add("purchase orders");
+        }
+        if (demandForecastRepository.existsByProductId(productId)) {
+            references.add("demand forecasts");
+        }
+        if (stockMovementRepository
+                .existsByProductIdInMovementHistory(productId)) {
+            references.add("movement history");
+        }
+        if (supplierProductRepository.existsByProduct_Id(productId)) {
+            references.add("supplier-product mappings");
+        }
+        if (notificationRepository.existsByTargetTypeAndTargetId(
+                Notification.TargetType.PRODUCT, productId)) {
+            references.add("product notifications");
+        }
+        if (auditEventRepository.existsProductHistory(productId)) {
+            references.add("product audit history");
+        }
+        return deletionBlockedReason(references);
     }
 
     private ProductResponse toResponse(

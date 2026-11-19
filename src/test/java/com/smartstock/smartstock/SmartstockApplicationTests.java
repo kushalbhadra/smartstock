@@ -8,6 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import com.smartstock.smartstock.entity.AuditEvent;
 import com.smartstock.smartstock.entity.Notification;
 import com.smartstock.smartstock.entity.Product;
@@ -32,8 +33,10 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -70,6 +73,9 @@ class SmartstockApplicationTests {
 	private UserRepository userRepository;
 
 	@Autowired
+	private PasswordEncoder passwordEncoder;
+
+	@Autowired
 	private AuditEventRepository auditEventRepository;
 
 	@Autowired
@@ -104,6 +110,79 @@ class SmartstockApplicationTests {
 				.andExpect(status().isUnauthorized());
 		mockMvc.perform(get("/api/notifications/unread-count"))
 				.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void publicRegistrationAlwaysCreatesViewerAccountsAndRejectsDuplicates()
+			throws Exception {
+		for (String requestedRole : new String[] {"ADMIN", "WAREHOUSE_MGR"}) {
+			String email = "signup-" + UUID.randomUUID()
+					+ "@example.invalid";
+			String body = """
+					{"name":"New Viewer","email":"%s","phone":"",
+					"password":"StrongPass1","role":"%s","warehouseId":1}
+					""".formatted(email, requestedRole);
+
+			mockMvc.perform(post("/auth/register")
+							.contentType(MediaType.APPLICATION_JSON)
+							.content(body))
+					.andExpect(status().isCreated())
+					.andExpect(jsonPath("$.role").value("VIEWER"));
+
+			User registered = userRepository.findByEmail(email).orElseThrow();
+			assertEquals(User.Role.VIEWER, registered.getRole());
+			assertNull(registered.getWarehouse());
+			assertTrue(passwordEncoder.matches(
+					"StrongPass1", registered.getPassword()));
+
+			mockMvc.perform(post("/auth/register")
+							.contentType(MediaType.APPLICATION_JSON)
+							.content(body))
+					.andExpect(status().isBadRequest())
+					.andExpect(jsonPath("$.message")
+							.value("Email is already in use"));
+		}
+	}
+
+	@Test
+	@WithMockUser(username = "password-owner@example.invalid",
+			roles = "VIEWER")
+	void passwordChangeUsesAuthenticatedAccountAndIgnoresTargetIdentifiers()
+			throws Exception {
+		User owner = userRepository.findByEmail(
+				"password-owner@example.invalid").orElseGet(() ->
+				userRepository.save(User.builder()
+						.name("Password Owner")
+						.email("password-owner@example.invalid")
+						.password(passwordEncoder.encode("CurrentPass1"))
+						.role(User.Role.VIEWER)
+						.build()));
+		User other = userRepository.save(User.builder()
+				.name("Other User")
+				.email("other-password-user-" + UUID.randomUUID()
+						+ "@example.invalid")
+				.password(passwordEncoder.encode("OtherPassword1"))
+				.role(User.Role.VIEWER)
+				.build());
+
+		mockMvc.perform(post("/api/users/me/password")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"userId":%d,"email":"%s",
+								"currentPassword":"CurrentPass1",
+								"newPassword":"NewPassword2",
+								"confirmPassword":"NewPassword2"}
+								""".formatted(other.getId(), other.getEmail())))
+				.andExpect(status().isOk());
+
+		User updatedOwner = userRepository.findById(owner.getId())
+				.orElseThrow();
+		User unchangedOther = userRepository.findById(other.getId())
+				.orElseThrow();
+		assertTrue(passwordEncoder.matches(
+				"NewPassword2", updatedOwner.getPassword()));
+		assertTrue(passwordEncoder.matches(
+				"OtherPassword1", unchangedOther.getPassword()));
 	}
 
 	@Test
@@ -145,6 +224,13 @@ class SmartstockApplicationTests {
 	@WithMockUser(username = "viewer@smartstock.com", roles = "VIEWER")
 	void viewerCanReadProductsButCannotExportOrMutateThem()
 			throws Exception {
+		userRepository.findByEmail("viewer@smartstock.com")
+				.orElseGet(() -> userRepository.save(User.builder()
+						.name("Test Viewer")
+						.email("viewer@smartstock.com")
+						.password("test-password")
+						.role(User.Role.VIEWER)
+						.build()));
 		mockMvc.perform(get("/api/products"))
 				.andExpect(status().isOk());
 
@@ -162,9 +248,70 @@ class SmartstockApplicationTests {
 	}
 
 	@Test
+	@WithMockUser(username = "product-delete-admin@example.invalid",
+			roles = "ADMIN")
+	void adminCanDeleteProductWithoutBusinessReferences() throws Exception {
+		Product product = saveTestProduct();
+
+		mockMvc.perform(delete("/api/products/{id}", product.getId()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.message")
+						.value("Product deleted successfully"));
+
+		assertTrue(productRepository.findById(product.getId()).isEmpty());
+	}
+
+	@Test
+	@WithMockUser(username = "product-delete-manager@example.invalid",
+			roles = "WAREHOUSE_MGR")
+	void managerCannotDeleteProduct() throws Exception {
+		mockMvc.perform(delete("/api/products/1"))
+				.andExpect(status().isForbidden());
+	}
+
+	@Test
+	@WithMockUser(username = "product-delete-viewer@example.invalid",
+			roles = "VIEWER")
+	void viewerCannotDeleteProduct() throws Exception {
+		mockMvc.perform(delete("/api/products/1"))
+				.andExpect(status().isForbidden());
+	}
+
+	@Test
 	@WithMockUser(username = "viewer@smartstock.com", roles = "VIEWER")
 	void viewerCannotReadAdminSettings() throws Exception {
 		mockMvc.perform(get("/api/settings"))
+				.andExpect(status().isForbidden());
+	}
+
+	@Test
+	@WithMockUser(username = "test-admin@example.invalid", roles = "ADMIN")
+	void adminCanReadSupplierProductMappings() throws Exception {
+		mockMvc.perform(get("/api/supplier-products"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$").isArray());
+	}
+
+	@Test
+	@WithMockUser(username = "mapping-viewer@example.invalid", roles = "VIEWER")
+	void viewerCannotReadSupplierProductMappingsOrChangeTheirStatus()
+			throws Exception {
+		mockMvc.perform(get("/api/supplier-products"))
+				.andExpect(status().isForbidden());
+
+		mockMvc.perform(patch("/api/suppliers/1/products/1")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"active\":false}"))
+				.andExpect(status().isForbidden());
+	}
+
+	@Test
+	@WithMockUser(username = "mapping-manager@example.invalid",
+			roles = "WAREHOUSE_MGR")
+	void managerCannotCreateSupplierProductMappings() throws Exception {
+		mockMvc.perform(post("/api/suppliers/1/products")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"productId\":1}"))
 				.andExpect(status().isForbidden());
 	}
 
@@ -483,15 +630,21 @@ class SmartstockApplicationTests {
 	}
 
 	@Test
-	void auditFailureRollsBackPurchaseOrderStatus() throws Exception {
+	void databaseRoleOverridesRequestRoleWhenUpdatingPurchaseOrder()
+			throws Exception {
 		PurchaseOrder order = savePendingPurchaseOrder();
-		String invalidAuditName = "a".repeat(121);
+		User viewer = userRepository.save(User.builder()
+				.name("Read-only viewer")
+				.email("viewer-" + UUID.randomUUID() + "@example.com")
+				.password("unused-test-password")
+				.role(User.Role.VIEWER)
+				.build());
 
 		mockMvc.perform(put("/api/purchase-orders/{id}/status", order.getId())
-						.with(user(invalidAuditName).roles("ADMIN"))
+						.with(user(viewer.getEmail()).roles("ADMIN"))
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("{\"status\":\"APPROVED\"}"))
-				.andExpect(status().is5xxServerError());
+				.andExpect(status().isForbidden());
 
 		assertEquals(PurchaseOrder.Status.PENDING,
 				purchaseOrderRepository.findById(order.getId())

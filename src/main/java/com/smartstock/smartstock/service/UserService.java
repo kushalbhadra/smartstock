@@ -3,6 +3,8 @@ package com.smartstock.smartstock.service;
 import com.smartstock.smartstock.dto.UserProfileRequest;
 import com.smartstock.smartstock.dto.UserRequest;
 import com.smartstock.smartstock.dto.UserResponse;
+import com.smartstock.smartstock.dto.ChangePasswordRequest;
+import com.smartstock.smartstock.dto.RegistrationRequest;
 import com.smartstock.smartstock.entity.User;
 import com.smartstock.smartstock.entity.Warehouse;
 import com.smartstock.smartstock.exception.BusinessException;
@@ -20,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.nio.charset.StandardCharsets;
 
 @Service
 @Transactional
@@ -87,6 +90,47 @@ public class UserService {
                         request.getRole(), request.getWarehouseId()))
                 .build();
         return toResponse(userRepository.save(user));
+    }
+
+    public UserResponse register(RegistrationRequest request) {
+        String name = request.getName().trim();
+        String email = ContactDetails.normalizeRequiredEmail(
+                request.getEmail());
+        if (userRepository.existsByEmailIgnoreCase(email)) {
+            throw new BusinessException("Email is already in use");
+        }
+        validateStrongPassword(request.getPassword());
+
+        User user = User.builder()
+                .name(name)
+                .email(email)
+                .password(passwordEncoder.encode(request.getPassword()))
+                .role(User.Role.VIEWER)
+                .phone(ContactDetails.normalizePhone(request.getPhone()))
+                .build();
+        return toResponse(userRepository.save(user));
+    }
+
+    public void changePassword(
+            String email, ChangePasswordRequest request) {
+        if (!request.getNewPassword().equals(request.getConfirmPassword())) {
+            throw new BusinessException(
+                    "New password and confirmation do not match");
+        }
+        validateStrongPassword(request.getNewPassword());
+
+        User user = findByEmail(email);
+        if (!passwordEncoder.matches(
+                request.getCurrentPassword(), user.getPassword())) {
+            throw new BusinessException("Current password is incorrect");
+        }
+        if (passwordEncoder.matches(
+                request.getNewPassword(), user.getPassword())) {
+            throw new BusinessException(
+                    "New password must be different from the current password");
+        }
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
     }
 
     public UserResponse update(Long id, UserRequest request) {
@@ -162,6 +206,17 @@ public class UserService {
                 && userRepository.countByRole(User.Role.ADMIN) <= 1) {
             throw new BusinessException(
                     "At least one administrator account must remain");
+        }
+    }
+
+    private void validateStrongPassword(String password) {
+        if (password == null
+                || password.length() < 8
+                || password.getBytes(StandardCharsets.UTF_8).length > 72
+                || !password.matches("^(?=.*[A-Za-z])(?=.*[0-9]).+$")) {
+            throw new BusinessException(
+                    "Password must be 8-72 UTF-8 bytes and contain a letter "
+                            + "and a number");
         }
     }
 

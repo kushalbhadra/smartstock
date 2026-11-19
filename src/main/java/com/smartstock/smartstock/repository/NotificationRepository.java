@@ -32,6 +32,17 @@ public interface NotificationRepository
 
     boolean existsByRecipient_Id(Long recipientId);
 
+    boolean existsByTargetTypeAndTargetId(
+            Notification.TargetType targetType, Long targetId);
+
+    @Query("""
+            select distinct n.targetId from Notification n
+            where n.targetType = com.smartstock.smartstock.entity.Notification.TargetType.PRODUCT
+              and n.targetId in :productIds
+            """)
+    List<Long> findProductTargetIds(
+            @Param("productIds") List<Long> productIds);
+
     @Query("""
             select n from Notification n
             where n.recipient.id = :recipientId

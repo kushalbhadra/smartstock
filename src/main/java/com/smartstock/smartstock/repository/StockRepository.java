@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.stereotype.Repository;
 import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
@@ -15,6 +16,9 @@ import java.util.Optional;
 
 @Repository
 public interface StockRepository extends JpaRepository<Stock, Long> {
+
+    @EntityGraph(attributePaths = {"product", "warehouse"})
+    List<Stock> findAllByOrderByIdAsc();
 
     // Find all stock in a specific warehouse
     List<Stock> findByWarehouseId(Long warehouseId);

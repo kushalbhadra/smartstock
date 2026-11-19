@@ -29,22 +29,37 @@ public class ProductController {
 
     // GET /api/products — all authenticated users
     @GetMapping
-    public ResponseEntity<List<ProductResponse>> getAllProducts() {
-        return ResponseEntity.ok(productService.getAllProducts());
+    public ResponseEntity<List<ProductResponse>> getAllProducts(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(
+                productService.getAllProducts(userDetails.getUsername()));
+    }
+
+    @GetMapping("/warehouse/{warehouseId}")
+    public ResponseEntity<List<ProductResponse>> getStockedProducts(
+            @PathVariable Long warehouseId,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(productService
+                .getStockedProductsByWarehouse(
+                        warehouseId, userDetails.getUsername()));
     }
 
     // GET /api/products/5 — all authenticated users
     @GetMapping("/{id}")
     public ResponseEntity<ProductResponse> getProduct(
-            @PathVariable Long id) {
-        return ResponseEntity.ok(productService.getProductById(id));
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(productService.getProductById(
+                id, userDetails.getUsername()));
     }
 
     // GET /api/products/search?keyword=laptop
     @GetMapping("/search")
     public ResponseEntity<List<ProductResponse>> search(
-            @RequestParam String keyword) {
-        return ResponseEntity.ok(productService.searchProducts(keyword));
+            @RequestParam String keyword,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(productService.searchProducts(
+                keyword, userDetails.getUsername()));
     }
 
 

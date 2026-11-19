@@ -1,10 +1,20 @@
 package com.smartstock.smartstock.service;
 
 import com.smartstock.smartstock.entity.Supplier;
+import com.smartstock.smartstock.entity.SupplierProduct;
+import com.smartstock.smartstock.entity.Product;
+import com.smartstock.smartstock.entity.User;
+import com.smartstock.smartstock.dto.SupplierProductRequest;
+import com.smartstock.smartstock.dto.SupplierProductResponse;
+import com.smartstock.smartstock.dto.SupplierProductAdminResponse;
 import com.smartstock.smartstock.dto.SupplierRequest;
 import com.smartstock.smartstock.exception.ResourceNotFoundException;
 import com.smartstock.smartstock.repository.SupplierRepository;
 import com.smartstock.smartstock.repository.PurchaseOrderRepository;
+import com.smartstock.smartstock.repository.SupplierProductRepository;
+import com.smartstock.smartstock.repository.ProductRepository;
+import com.smartstock.smartstock.repository.StockRepository;
+import com.smartstock.smartstock.repository.UserRepository;
 import com.smartstock.smartstock.exception.BusinessException;
 import com.smartstock.smartstock.validation.ContactDetails;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +22,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 @Service
 @Transactional
@@ -23,6 +35,18 @@ public class SupplierService {
     @Autowired
     private PurchaseOrderRepository purchaseOrderRepository;
 
+    @Autowired
+    private SupplierProductRepository supplierProductRepository;
+
+    @Autowired
+    private ProductRepository productRepository;
+
+    @Autowired
+    private StockRepository stockRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+
     @Transactional(readOnly = true)
     public List<Supplier> getAllSuppliers() {
         return supplierRepository.findAll();
@@ -33,6 +57,82 @@ public class SupplierService {
         return supplierRepository.findById(id)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Supplier", "id", id));
+    }
+
+    @Transactional(readOnly = true)
+    public List<SupplierProductResponse> getSupplierProducts(
+            Long supplierId, String email) {
+        getSupplierById(supplierId);
+        User user = findUser(email);
+        return toVisibleProducts(
+                supplierProductRepository
+                        .findAllBySupplier_IdOrderByProduct_NameAsc(
+                                supplierId),
+                user);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SupplierProductAdminResponse> getAllSupplierProductMappings() {
+        return supplierProductRepository.findAllWithSupplierAndProduct()
+                .stream()
+                .map(SupplierProductAdminResponse::from)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<SupplierProductResponse> getActiveSupplierProducts(
+            Long supplierId, String email) {
+        getSupplierById(supplierId);
+        User user = findUser(email);
+        return toVisibleProducts(
+                supplierProductRepository
+                        .findAllBySupplier_IdAndActiveTrueOrderByProduct_NameAsc(
+                                supplierId),
+                user);
+    }
+
+    public SupplierProductResponse addSupplierProduct(
+            Long supplierId, SupplierProductRequest request) {
+        Supplier supplier = getSupplierById(supplierId);
+        Product product = productRepository.findById(request.getProductId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Product", "id", request.getProductId()));
+        SupplierProduct association = supplierProductRepository
+                .findBySupplier_IdAndProduct_Id(
+                        supplierId, request.getProductId())
+                .orElseGet(() -> SupplierProduct.builder()
+                        .supplier(supplier)
+                        .product(product)
+                        .build());
+        if (Boolean.TRUE.equals(association.getActive())
+                && association.getId() != null) {
+            throw new BusinessException(
+                    "This product is already mapped to the supplier.");
+        }
+        if (request.getPurchasePrice() != null) {
+            association.setPurchasePrice(request.getPurchasePrice());
+        }
+        if (request.getLeadTimeDays() != null) {
+            association.setLeadTimeDays(request.getLeadTimeDays());
+        }
+        if (request.getSupplierProductCode() != null) {
+            association.setSupplierProductCode(
+                    request.getSupplierProductCode());
+        }
+        association.setActive(true);
+        return SupplierProductResponse.from(
+                supplierProductRepository.save(association));
+    }
+
+    public SupplierProductResponse setSupplierProductActive(
+            Long supplierId, Long productId, boolean active) {
+        SupplierProduct association = supplierProductRepository
+                .findBySupplier_IdAndProduct_Id(supplierId, productId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Supplier product", "productId", productId));
+        association.setActive(active);
+        return SupplierProductResponse.from(
+                supplierProductRepository.save(association));
     }
 
     public Supplier createSupplier(SupplierRequest request) {
@@ -110,5 +210,31 @@ public class SupplierService {
             return null;
         }
         return code.trim().toUpperCase();
+    }
+
+    private List<SupplierProductResponse> toVisibleProducts(
+            List<SupplierProduct> associations, User user) {
+        if (user.getRole() != User.Role.WAREHOUSE_MGR) {
+            return associations.stream()
+                    .map(SupplierProductResponse::from)
+                    .toList();
+        }
+        if (user.getWarehouse() == null) {
+            return List.of();
+        }
+        Set<Long> stockedProductIds = new HashSet<>(
+                stockRepository.findProductIdsByWarehouseId(
+                        user.getWarehouse().getId()));
+        return associations.stream()
+                .filter(association -> stockedProductIds.contains(
+                        association.getProduct().getId()))
+                .map(SupplierProductResponse::from)
+                .toList();
+    }
+
+    private User findUser(String email) {
+        return userRepository.findByEmail(email)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("User", "email", email));
     }
 }

@@ -22,7 +22,7 @@ public class SystemSettings {
 
     @Column(nullable = false, length = 120)
     @Builder.Default
-    private String companyName = "SmartStock";
+    private String companyName = "GoodsPilot";
 
     @Column(length = 150)
     private String contactEmail;

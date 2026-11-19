@@ -1,6 +1,7 @@
 package com.smartstock.smartstock.controller;
 
 import com.smartstock.smartstock.dto.ApiResponse;
+import com.smartstock.smartstock.dto.ChangePasswordRequest;
 import com.smartstock.smartstock.dto.UserProfileRequest;
 import com.smartstock.smartstock.dto.UserRequest;
 import com.smartstock.smartstock.dto.UserResponse;
@@ -47,6 +48,16 @@ public class UserController {
                 "UPDATED", "PROFILE", response.getId(),
                 "Updated personal profile and notification preferences");
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/me/password")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse> changeCurrentPassword(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @Valid @RequestBody ChangePasswordRequest request) {
+        userService.changePassword(userDetails.getUsername(), request);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Password changed. Sign in again with your new password."));
     }
 
     @GetMapping

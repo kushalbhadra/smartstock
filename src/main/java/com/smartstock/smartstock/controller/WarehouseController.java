@@ -33,7 +33,7 @@ public class WarehouseController {
     }
 
     @GetMapping("/transfer-destinations")
-    @PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE_MGR')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<WarehouseOption>> getTransferDestinations(
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.ok(

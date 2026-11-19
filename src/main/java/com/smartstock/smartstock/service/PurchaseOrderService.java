@@ -6,6 +6,7 @@ import com.smartstock.smartstock.dto.PurchaseOrderReceiptRequest;
 import com.smartstock.smartstock.entity.PurchaseOrder;
 import com.smartstock.smartstock.entity.Product;
 import com.smartstock.smartstock.entity.Supplier;
+import com.smartstock.smartstock.entity.SupplierProduct;
 import com.smartstock.smartstock.entity.User;
 import com.smartstock.smartstock.entity.Warehouse;
 import com.smartstock.smartstock.exception.BusinessException;
@@ -14,9 +15,9 @@ import com.smartstock.smartstock.repository.ProductRepository;
 import com.smartstock.smartstock.repository.PurchaseOrderRepository;
 import com.smartstock.smartstock.repository.PurchaseOrderReceiptRepository;
 import com.smartstock.smartstock.repository.SupplierRepository;
+import com.smartstock.smartstock.repository.SupplierProductRepository;
 import com.smartstock.smartstock.repository.UserRepository;
 import com.smartstock.smartstock.repository.WarehouseRepository;
-import com.smartstock.smartstock.exception.BusinessException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +32,7 @@ public class PurchaseOrderService {
     private final PurchaseOrderRepository purchaseOrderRepository;
     private final PurchaseOrderReceiptRepository receiptRepository;
     private final SupplierRepository supplierRepository;
+    private final SupplierProductRepository supplierProductRepository;
     private final ProductRepository productRepository;
     private final WarehouseRepository warehouseRepository;
     private final UserRepository userRepository;
@@ -42,6 +44,7 @@ public class PurchaseOrderService {
             PurchaseOrderRepository purchaseOrderRepository,
             PurchaseOrderReceiptRepository receiptRepository,
             SupplierRepository supplierRepository,
+            SupplierProductRepository supplierProductRepository,
             ProductRepository productRepository,
             WarehouseRepository warehouseRepository,
             UserRepository userRepository,
@@ -53,6 +56,7 @@ public class PurchaseOrderService {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.receiptRepository = receiptRepository;
         this.supplierRepository = supplierRepository;
+        this.supplierProductRepository = supplierProductRepository;
         this.productRepository = productRepository;
         this.warehouseRepository = warehouseRepository;
         this.userRepository = userRepository;
@@ -86,15 +90,21 @@ public class PurchaseOrderService {
             String email
     ) {
         User user = findUser(email);
-        Warehouse warehouse = warehouseRepository.findById(request.getWarehouseId())
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Warehouse", "id", request.getWarehouseId()));
-
-        if (user.getRole() == User.Role.WAREHOUSE_MGR
-                && (user.getWarehouse() == null
-                || !user.getWarehouse().getId().equals(warehouse.getId()))) {
-            throw new AccessDeniedException(
-                    "Warehouse managers can create orders only for their warehouse");
+        ensurePurchaseOrderActor(user);
+        Warehouse warehouse;
+        if (user.getRole() == User.Role.WAREHOUSE_MGR) {
+            warehouse = user.getWarehouse();
+            if (warehouse == null
+                    || !warehouse.getId().equals(request.getWarehouseId())) {
+                throw new AccessDeniedException(
+                        "Warehouse managers can create orders only for "
+                                + "their warehouse");
+            }
+        } else {
+            warehouse = warehouseRepository.findById(
+                            request.getWarehouseId())
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "Warehouse", "id", request.getWarehouseId()));
         }
 
         Supplier supplier = supplierRepository.findById(request.getSupplierId())
@@ -103,6 +113,15 @@ public class PurchaseOrderService {
         if (Boolean.FALSE.equals(supplier.getActive())) {
             throw new BusinessException(
                     "Purchase orders cannot be created for an inactive supplier.");
+        }
+        SupplierProduct supplierProduct = supplierProductRepository
+                .findBySupplier_IdAndProduct_Id(
+                        supplier.getId(), request.getProductId())
+                .orElseThrow(() -> new BusinessException(
+                        "The selected product is not mapped to this supplier."));
+        if (!Boolean.TRUE.equals(supplierProduct.getActive())) {
+            throw new BusinessException(
+                    "The selected supplier-product mapping is inactive.");
         }
         Product product = productRepository.findById(request.getProductId())
                 .orElseThrow(() -> new ResourceNotFoundException(
@@ -128,13 +147,6 @@ public class PurchaseOrderService {
 
     public PurchaseOrderResponse updateStatus(
             Long id,
-            PurchaseOrder.Status status
-    ) {
-        return updateStatus(id, status, null, true);
-    }
-
-    public PurchaseOrderResponse updateStatus(
-            Long id,
             PurchaseOrder.Status status,
             String email
     ) {
@@ -143,43 +155,23 @@ public class PurchaseOrderService {
                     "An authenticated actor is required to change purchase "
                             + "order status.");
         }
-        return updateStatus(id, status, email, false);
-    }
-
-    public PurchaseOrderResponse updateStatus(
-            Long id,
-            PurchaseOrder.Status status,
-            String email,
-            boolean administrator
-    ) {
-        if (!administrator && (email == null || email.isBlank())) {
-            throw new AccessDeniedException(
-                    "An authenticated actor is required to change purchase "
-                            + "order status.");
-        }
         PurchaseOrder order = purchaseOrderRepository.findByIdForUpdate(id)
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
                                 "Purchase order", "id", id));
-        User actor = administrator || email == null ? null : findUser(email);
-        if (!administrator && actor != null) {
-            if (actor.getRole() == User.Role.WAREHOUSE_MGR) {
-                if (!managerApprovalEnabled
-                        || status != PurchaseOrder.Status.APPROVED) {
-                    throw new AccessDeniedException(
-                            "Warehouse managers are not permitted to change "
-                                    + "purchase order status.");
-                }
-                ensureManagerCanApprove(actor, order);
-            } else {
+        User actor = findUser(email);
+        ensurePurchaseOrderActor(actor);
+        if (actor.getRole() == User.Role.WAREHOUSE_MGR) {
+            if (!managerApprovalEnabled
+                    || status != PurchaseOrder.Status.APPROVED) {
                 throw new AccessDeniedException(
-                        "Only administrators and permitted warehouse managers "
-                                + "can change purchase order status.");
+                        "Warehouse managers are not permitted to change "
+                                + "purchase order status.");
             }
+            ensureManagerCanApprove(actor, order);
         }
         if (status == order.getStatus()) {
-            return PurchaseOrderResponse.from(
-                    order, actor != null && canApprove(actor, order));
+            return PurchaseOrderResponse.from(order, canApprove(actor, order));
         }
         boolean allowed = switch (order.getStatus()) {
             case PENDING -> status == PurchaseOrder.Status.APPROVED
@@ -197,7 +189,7 @@ public class PurchaseOrderService {
         PurchaseOrder saved = purchaseOrderRepository.save(order);
         notificationService.onPurchaseOrderStatus(saved);
         return PurchaseOrderResponse.from(
-                saved, actor != null && canApprove(actor, saved));
+                saved, canApprove(actor, saved));
     }
 
     public PurchaseOrderResponse receive(
@@ -208,6 +200,7 @@ public class PurchaseOrderService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Purchase order", "id", id));
         User actor = findUser(email);
+        ensurePurchaseOrderActor(actor);
         if (actor.getRole() == User.Role.WAREHOUSE_MGR
                 && (actor.getWarehouse() == null
                 || !actor.getWarehouse().getId().equals(
@@ -294,6 +287,14 @@ public class PurchaseOrderService {
         if (actor.getId().equals(order.getCreatedBy().getId())) {
             throw new AccessDeniedException(
                     "The purchase order creator cannot approve their own order.");
+        }
+    }
+
+    private void ensurePurchaseOrderActor(User actor) {
+        if (actor.getRole() != User.Role.ADMIN
+                && actor.getRole() != User.Role.WAREHOUSE_MGR) {
+            throw new AccessDeniedException(
+                    "Only administrators and warehouse managers can manage purchase orders.");
         }
     }
 

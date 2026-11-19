@@ -61,14 +61,9 @@ public class WarehouseService {
     @Transactional(readOnly = true)
     public List<WarehouseOption> getTransferDestinations(String email) {
         User user = findUser(email);
-        if (user.getRole() != User.Role.ADMIN
-                && user.getRole() != User.Role.WAREHOUSE_MGR) {
+        if (user.getRole() != User.Role.ADMIN) {
             throw new AccessDeniedException(
-                    "Only administrators and warehouse managers can transfer stock.");
-        }
-        if (user.getRole() == User.Role.WAREHOUSE_MGR
-                && user.getWarehouse() == null) {
-            return List.of();
+                    "Only administrators can transfer stock between warehouses.");
         }
         return warehouseRepository.findAll().stream()
                 .map(warehouse -> new WarehouseOption(

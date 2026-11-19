@@ -218,12 +218,8 @@ public class DashboardService {
     }
 
     private List<DemandForecast> forecastsForWarehouse(Long warehouseId) {
-        List<Long> productIds =
-                stockRepository.findProductIdsByWarehouseId(warehouseId);
-        return productIds.isEmpty()
-                ? List.of()
-                : forecastRepository.findTop5ByProductIdInOrderByCreatedAtDesc(
-                        productIds);
+        return forecastRepository.findTop5ByWarehouseIdOrderByCreatedAtDesc(
+                warehouseId);
     }
 
     private List<PurchaseOrderStatusCount> purchaseOrderStatusCounts(

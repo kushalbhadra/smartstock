@@ -124,8 +124,15 @@ public class NotificationService {
 
     public void onForecastSaved(DemandForecast forecast) {
         Long productId = forecast.getProduct().getId();
-        String conditionKey = "forecast:" + productId + ":ANOMALY";
-        List<User> recipients = forecastRecipients(productId);
+        Long warehouseId = forecast.getWarehouse() == null
+                ? null : forecast.getWarehouse().getId();
+        String scope = warehouseId == null
+                ? "" : ":warehouse:" + warehouseId;
+        String conditionKey =
+                "forecast:" + productId + scope + ":ANOMALY";
+        List<User> recipients = warehouseId == null
+                ? forecastRecipients(productId)
+                : forecastRecipientsForWarehouse(warehouseId);
         if (Boolean.TRUE.equals(forecast.getAnomalyDetected())) {
             Product product = productRepository.findById(productId)
                     .orElseThrow(() -> new ResourceNotFoundException(
@@ -376,6 +383,19 @@ public class NotificationService {
                 .distinct()
                 .forEach(warehouseId -> recipients.addAll(
                         userRepository.findByWarehouseId(warehouseId)));
+        return recipients.stream()
+                .collect(Collectors.toMap(User::getId, user -> user,
+                        (first, ignored) -> first))
+                .values()
+                .stream()
+                .sorted(Comparator.comparing(User::getId))
+                .toList();
+    }
+
+    private List<User> forecastRecipientsForWarehouse(Long warehouseId) {
+        List<User> recipients = new java.util.ArrayList<>(
+                userRepository.findByRole(User.Role.ADMIN));
+        recipients.addAll(userRepository.findByWarehouseId(warehouseId));
         return recipients.stream()
                 .collect(Collectors.toMap(User::getId, user -> user,
                         (first, ignored) -> first))

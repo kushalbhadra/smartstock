@@ -85,6 +85,7 @@ class StockServiceTest {
         user = User.builder()
                 .id(5L)
                 .email("user@smartstock.com")
+                .role(User.Role.ADMIN)
                 .build();
 
         lenient().when(stockRepository.findByWarehouseIdAndProductIdForUpdate(2L, 3L))
@@ -152,6 +153,34 @@ class StockServiceTest {
     }
 
     @Test
+    void managerCanRecordMovementForAssignedWarehouse() {
+        user.setRole(User.Role.WAREHOUSE_MGR);
+        user.setWarehouse(stock.getWarehouse());
+        when(movementRepository.save(any(StockMovement.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        stockService.recordMovement(
+                request(StockMovement.MovementType.OUTBOUND, 1), 5L);
+
+        assertEquals(7, stock.getQuantity());
+        verify(stockRepository).save(stock);
+        verify(movementRepository).save(any(StockMovement.class));
+    }
+
+    @Test
+    void viewerCannotRecordStockMovementThroughService() {
+        user.setRole(User.Role.VIEWER);
+
+        assertThrows(AccessDeniedException.class,
+                () -> stockService.recordMovement(
+                        request(StockMovement.MovementType.OUTBOUND, 1), 5L));
+
+        assertEquals(8, stock.getQuantity());
+        verifyNoInteractions(productRepository, warehouseRepository,
+                movementRepository, notificationService);
+    }
+
+    @Test
     void rejectsOutboundMovementWhenStockIsInsufficient() {
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -209,9 +238,7 @@ class StockServiceTest {
     }
 
     @Test
-    void managerTransfersFromAssignedWarehouseToAnotherDestination() {
-        user.setRole(User.Role.WAREHOUSE_MGR);
-        user.setWarehouse(stock.getWarehouse());
+    void administratorTransfersStockBetweenWarehouses() {
         Warehouse destinationWarehouse = Warehouse.builder()
                 .id(7L)
                 .name("Overflow warehouse")
@@ -278,6 +305,23 @@ class StockServiceTest {
         user.setWarehouse(stock.getWarehouse());
         StockTransferRequest request = new StockTransferRequest();
         request.setSourceWarehouseId(9L);
+        request.setDestinationWarehouseId(7L);
+        request.setProductId(3L);
+        request.setQuantity(1);
+
+        assertThrows(AccessDeniedException.class,
+                () -> stockService.transfer(request, 5L));
+
+        verifyNoInteractions(productRepository, warehouseRepository,
+                movementRepository);
+    }
+
+    @Test
+    void warehouseManagerCannotTransferToAnotherWarehouse() {
+        user.setRole(User.Role.WAREHOUSE_MGR);
+        user.setWarehouse(stock.getWarehouse());
+        StockTransferRequest request = new StockTransferRequest();
+        request.setSourceWarehouseId(2L);
         request.setDestinationWarehouseId(7L);
         request.setProductId(3L);
         request.setQuantity(1);

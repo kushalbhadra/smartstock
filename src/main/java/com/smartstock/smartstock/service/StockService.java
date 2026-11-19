@@ -245,6 +245,7 @@ public class StockService {
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
                                 "User", "id", performedByUserId));
+        ensureInventoryWriter(performedBy);
         ensureWarehouseAccess(performedBy, request.getWarehouseId());
         productRepository.findByIdForUpdate(request.getProductId())
                 .orElseThrow(() -> new ResourceNotFoundException(
@@ -455,10 +456,9 @@ public class StockService {
         User performedBy = userRepository.findById(performedByUserId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "User", "id", performedByUserId));
-        ensureWarehouseAccess(performedBy, request.getSourceWarehouseId());
-        if (performedBy.getRole() != User.Role.WAREHOUSE_MGR) {
-            ensureWarehouseAccess(performedBy,
-                    request.getDestinationWarehouseId());
+        if (performedBy.getRole() != User.Role.ADMIN) {
+            throw new AccessDeniedException(
+                    "Only administrators can transfer stock between warehouses.");
         }
         Product product = productRepository
                 .findByIdForUpdate(request.getProductId())
@@ -691,6 +691,14 @@ public class StockService {
                 || !user.getWarehouse().getId().equals(warehouseId))) {
             throw new AccessDeniedException(
                     "Warehouse managers can access only their assigned warehouse");
+        }
+    }
+
+    private void ensureInventoryWriter(User user) {
+        if (user.getRole() != User.Role.ADMIN
+                && user.getRole() != User.Role.WAREHOUSE_MGR) {
+            throw new AccessDeniedException(
+                    "Only administrators and warehouse managers can change stock.");
         }
     }
 }

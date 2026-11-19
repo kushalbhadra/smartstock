@@ -173,7 +173,7 @@ public class StockController {
     }
 
     @PostMapping("/transfers")
-    @PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE_MGR')")
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     public ResponseEntity<List<StockMovementResponse>> transfer(
             @Valid @RequestBody StockTransferRequest request,

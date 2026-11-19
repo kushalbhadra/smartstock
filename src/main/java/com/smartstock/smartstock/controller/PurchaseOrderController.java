@@ -65,9 +65,7 @@ public class PurchaseOrderController {
         PurchaseOrderResponse response = purchaseOrderService.updateStatus(
                 id,
                 request.getStatus(),
-                userDetails.getUsername(),
-                userDetails.getAuthorities().stream().anyMatch(authority ->
-                        authority.getAuthority().equals("ROLE_ADMIN")));
+                userDetails.getUsername());
         auditEventService.record(userDetails.getUsername(),
                 userDetails.getUsername(), "UPDATED_STATUS",
                 "PURCHASE_ORDER", response.id(),

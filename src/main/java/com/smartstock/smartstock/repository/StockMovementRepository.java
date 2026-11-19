@@ -51,6 +51,31 @@ public interface StockMovementRepository extends
             Long warehouseId, LocalDateTime start);
 
     @Query("""
+            SELECT m.stock.product.id, m.stock.warehouse.id,
+                   function('date_trunc', 'day', m.createdAt),
+                   SUM(CASE WHEN m.movementType = :outboundType
+                            AND m.quantity > 0
+                       THEN m.quantity ELSE 0 END)
+            FROM StockMovement m
+            WHERE m.createdAt >= :start
+              AND m.createdAt < :end
+            GROUP BY m.stock.product.id, m.stock.warehouse.id,
+                     function('date_trunc', 'day', m.createdAt)
+            """)
+    List<Object[]> getDailyDemandByProductAndWarehouse(
+            @Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end,
+            @Param("outboundType") StockMovement.MovementType outboundType);
+
+    @Query("""
+            SELECT m.stock.product.id, m.stock.warehouse.id, MIN(m.createdAt)
+            FROM StockMovement m
+            WHERE m.createdAt IS NOT NULL
+            GROUP BY m.stock.product.id, m.stock.warehouse.id
+            """)
+    List<Object[]> getMovementCoverageStartByProductAndWarehouse();
+
+    @Query("""
             SELECT function('date_trunc', 'day', m.createdAt),
                    SUM(CASE WHEN m.movementType IN
                        (com.smartstock.smartstock.entity.StockMovement.MovementType.INBOUND,

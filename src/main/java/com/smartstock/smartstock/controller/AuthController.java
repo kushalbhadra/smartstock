@@ -2,12 +2,16 @@ package com.smartstock.smartstock.controller;
 
 import com.smartstock.smartstock.dto.LoginRequest;
 import com.smartstock.smartstock.dto.LoginResponse;
+import com.smartstock.smartstock.dto.RegistrationRequest;
+import com.smartstock.smartstock.dto.UserResponse;
 import com.smartstock.smartstock.entity.User;
 import com.smartstock.smartstock.repository.UserRepository;
 import com.smartstock.smartstock.security.JwtUtil;
+import com.smartstock.smartstock.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -25,6 +29,16 @@ public class AuthController {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private UserService userService;
+
+    @PostMapping("/register")
+    public ResponseEntity<UserResponse> register(
+            @Valid @RequestBody RegistrationRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(userService.register(request));
+    }
 
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(

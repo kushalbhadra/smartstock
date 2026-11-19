@@ -1,89 +1,83 @@
 package com.smartstock.smartstock.controller;
 
 import com.smartstock.smartstock.dto.ApiResponse;
-import com.smartstock.smartstock.entity.DemandForecast;
-import com.smartstock.smartstock.repository.DemandForecastRepository;
+import com.smartstock.smartstock.dto.DemandForecastResponse;
+import com.smartstock.smartstock.service.DemandForecastService;
 import org.springframework.batch.core.job.Job;
-import org.springframework.batch.core.job.parameters.JobParameters;
 import org.springframework.batch.core.job.parameters.JobParametersBuilder;
 import org.springframework.batch.core.launch.JobOperator;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/forecasts")
 public class ForecastController {
+    private static final Logger LOGGER =
+            LoggerFactory.getLogger(ForecastController.class);
 
-    @Autowired
-    private DemandForecastRepository forecastRepository;
+    private final DemandForecastService forecastService;
+    private final JobOperator jobOperator;
+    private final Job demandForecastJob;
 
-    @Autowired
-    private JobOperator jobOperator;
-
-    @Autowired
-    private Job demandForecastJob;
-
-    // GET /api/forecasts
-    @GetMapping
-    public ResponseEntity<List<DemandForecast>> getForecasts() {
-
-        return ResponseEntity.ok(
-                forecastRepository.findAllByOrderByCreatedAtDesc()
-        );
+    public ForecastController(
+            DemandForecastService forecastService,
+            JobOperator jobOperator,
+            Job demandForecastJob) {
+        this.forecastService = forecastService;
+        this.jobOperator = jobOperator;
+        this.demandForecastJob = demandForecastJob;
     }
 
-    // GET /api/forecasts/product/5
-    @GetMapping("/product/{productId}")
-    public ResponseEntity<DemandForecast> getForecastByProduct(
-            @PathVariable Long productId) {
+    @GetMapping
+    public ResponseEntity<List<DemandForecastResponse>> getForecasts(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(
+                forecastService.getForecasts(userDetails.getUsername()));
+    }
 
-        return forecastRepository
-                .findTopByProductIdOrderByCreatedAtDesc(productId)
+    @GetMapping("/current")
+    public ResponseEntity<List<DemandForecastResponse>> getCurrentForecasts(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(
+                forecastService.getCurrentForecasts(
+                        userDetails.getUsername()));
+    }
+
+    @GetMapping("/product/{productId}")
+    public ResponseEntity<DemandForecastResponse> getForecastByProduct(
+            @PathVariable Long productId,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return forecastService.getForecast(productId, userDetails.getUsername())
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    // POST /api/forecasts/run
-    // ADMIN only
     @PostMapping("/run")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse> runForecastJob() {
-
         try {
-
-            JobParameters params = new JobParametersBuilder()
-                    .addLong(
-                            "timestamp",
-                            System.currentTimeMillis()
-                    )
+            var parameters = new JobParametersBuilder()
+                    .addLong("timestamp", System.currentTimeMillis())
                     .toJobParameters();
-
-            jobOperator.start(
-                    demandForecastJob,
-                    params
-            );
-
+            jobOperator.start(demandForecastJob, parameters);
             return ResponseEntity.ok(
-                    ApiResponse.success(
-                            "Forecast job started successfully"
-                    )
-            );
-
-        } catch (Exception e) {
-
-            e.printStackTrace();
-
+                    ApiResponse.success("Forecast job started successfully"));
+        } catch (Exception exception) {
+            LOGGER.error("Failed to start demand forecast job.", exception);
             return ResponseEntity.internalServerError()
-                    .body(
-                            ApiResponse.error(
-                                    "Forecast job failed: "
-                                            + e.getMessage()
-                            )
-                    );
+                    .body(ApiResponse.error(
+                            "Could not start the forecast job."));
         }
     }
 }

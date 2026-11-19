@@ -73,11 +73,14 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
 
                         // Public endpoints — no token needed
-                        .requestMatchers("/auth/login").permitAll()
+                        .requestMatchers("/auth/login", "/auth/register")
+                        .permitAll()
                         .requestMatchers("/actuator/health").permitAll()
 
                         // Authenticated users can manage their own profile
                         .requestMatchers("/api/users/me").authenticated()
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/users/me/password").authenticated()
 
                         // Admin only endpoints
                         .requestMatchers("/api/users/**",
@@ -105,8 +108,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/stocks/movements")
                         .hasAnyRole("ADMIN", "WAREHOUSE_MGR")
                         .requestMatchers(HttpMethod.POST, "/api/stocks/transfers")
-                        .hasAnyRole("ADMIN", "WAREHOUSE_MGR")
+                        .hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/purchase-orders")
+                        .hasAnyRole("ADMIN", "WAREHOUSE_MGR")
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/purchase-orders/*/receipts")
                         .hasAnyRole("ADMIN", "WAREHOUSE_MGR")
                         .requestMatchers(HttpMethod.PUT,
                                 "/api/purchase-orders/*/status")

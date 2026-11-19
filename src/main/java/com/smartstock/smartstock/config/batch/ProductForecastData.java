@@ -1,19 +1,18 @@
 package com.smartstock.smartstock.config.batch;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import com.smartstock.smartstock.dto.ForecastDataPoint;
 
-// Data passed from Reader to Processor
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-public class ProductForecastData {
+import java.time.LocalDate;
+import java.util.List;
 
-    private Long productId;
-    private String productName;
-    private String category;
-    private int currentStock;
-    private int outboundLast7Days;
-    private int outboundLast30Days;
+public record ProductForecastData(
+        Long productId,
+        String productName,
+        String category,
+        Long warehouseId,
+        String warehouseName,
+        LocalDate asOfDate,
+        int currentStock,
+        int historyCoverageDays,
+        List<ForecastDataPoint> historicalDemand) {
 }

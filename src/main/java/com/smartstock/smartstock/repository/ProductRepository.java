@@ -28,4 +28,24 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
 
     // Search by name containing keyword (case insensitive)
     List<Product> findByNameContainingIgnoreCase(String name);
+
+    @Query("""
+            SELECT DISTINCT p FROM Stock s
+            JOIN s.product p
+            WHERE s.warehouse.id = :warehouseId
+            ORDER BY p.name
+            """)
+    List<Product> findStockedByWarehouseId(
+            @Param("warehouseId") Long warehouseId);
+
+    @Query("""
+            SELECT DISTINCT p FROM Stock s
+            JOIN s.product p
+            WHERE s.warehouse.id = :warehouseId
+              AND LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%'))
+            ORDER BY p.name
+            """)
+    List<Product> searchStockedByWarehouseId(
+            @Param("warehouseId") Long warehouseId,
+            @Param("keyword") String keyword);
 }
